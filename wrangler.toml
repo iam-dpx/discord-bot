@@ -1,0 +1,12 @@
+# wrangler.toml
+# Dead Pixel — Discord customizer bot (Cloudflare Worker)
+# Written by Dead Pixel (iamreal.dpx@gmail.com)
+
+name = "dead-pixel-discord-bot"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+
+# Secrets are set via `wrangler secret put <NAME>` — never written here:
+#   DISCORD_TOKEN
+#   DISCORD_PUBLIC_KEY
+#   DISCORD_APPLICATION_ID
