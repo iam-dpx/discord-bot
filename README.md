@@ -14,6 +14,9 @@ Slash commands that let a server customize the bot:
 - `/setavatar <url>` — changes the bot's **avatar everywhere** it's added
   (admin-only by default). Discord limits this to roughly once per 10
   minutes.
+- `/setdescription <text>` — changes the bot's "About Me" text (shown on
+  its Discord profile), **everywhere** it's added (admin-only by
+  default). No gateway connection needed for this one.
 
 Runs on Cloudflare Workers using Discord's HTTP Interactions model — no
 always-on server, no gateway connection. Discord POSTs each slash command
@@ -126,6 +129,8 @@ wired into the site (currently a placeholder in
 
 - `/setname` and `/setavatar` affect the bot **globally** — every server
   it's in sees the change, not just the one where the command ran.
-- No live custom status (e.g. "Playing Minecraft") — that requires a
-  persistent gateway connection, which Cloudflare Workers doesn't
-  support. This bot is intentionally slash-command-only.
+- No live custom status (e.g. "Playing Minecraft"), no green "online" dot,
+  and no rich presence — all three require a persistent gateway
+  connection, which Cloudflare Workers doesn't support. Deliberately
+  staying Workers-only (free, no server to maintain) rather than adding
+  an always-on host for these.

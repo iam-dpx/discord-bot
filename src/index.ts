@@ -76,6 +76,23 @@ async function handleSetNickname(env: Env, guildId: string, nickname: string): P
   return ephemeralReply(`Nickname in this server is now **${nickname}**.`);
 }
 
+async function handleSetDescription(env: Env, description: string): Promise<Response> {
+  const res = await discordApi(env, `/applications/@me`, {
+    method: "PATCH",
+    body: JSON.stringify({ description }),
+  });
+
+  if (res.status === 429) {
+    return ephemeralReply("Rate limited by Discord — try again in a bit.");
+  }
+  if (!res.ok) {
+    return ephemeralReply(`Couldn't change the description (Discord said: ${res.status}).`);
+  }
+  return ephemeralReply(
+    "Bot's \"About Me\" description updated — heads up, this changes everywhere the bot is added, not just here."
+  );
+}
+
 async function handleSetName(env: Env, username: string): Promise<Response> {
   const res = await discordApi(env, `/users/@me`, {
     method: "PATCH",
@@ -166,6 +183,11 @@ async function handleCommand(env: Env, interaction: DiscordInteraction): Promise
       const url = getOption("url");
       if (!url) return ephemeralReply("Give me an image URL to use.");
       return handleSetAvatar(env, url);
+    }
+    case "setdescription": {
+      const description = getOption("text");
+      if (!description) return ephemeralReply("Give me the new description text.");
+      return handleSetDescription(env, description);
     }
     default:
       return ephemeralReply("Unknown command.");

@@ -58,6 +58,19 @@ const commands = [
       },
     ],
   },
+  {
+    name: "setdescription",
+    description: "Change the bot's \"About Me\" text everywhere it's added (admin only)",
+    default_member_permissions: "8",
+    options: [
+      {
+        name: "text",
+        description: "New description text",
+        type: 3,
+        required: true,
+      },
+    ],
+  },
 ];
 
 const res = await fetch(`https://discord.com/api/v10/applications/${appId}/commands`, {
