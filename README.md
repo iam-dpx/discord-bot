@@ -91,9 +91,12 @@ DISCORD_TOKEN=your_token DISCORD_APPLICATION_ID=your_app_id node register.mjs
 
 ### 7. Invite the bot to a server
 
-Build an invite link (replace `YOUR_APP_ID`):
+Build an invite link (replace `YOUR_APP_ID`) — the `permissions` value
+below (`67108864`) is Discord's **Change Nickname** permission, which the
+bot needs to change its own nickname per server. Without it, `/setnickname`
+returns a 403 even with a valid token:
 ```
-https://discord.com/oauth2/authorize?client_id=YOUR_APP_ID&scope=bot%20applications.commands&permissions=0
+https://discord.com/oauth2/authorize?client_id=YOUR_APP_ID&scope=bot%20applications.commands&permissions=67108864
 ```
 Open it, pick a server, authorize. The slash commands should now show up.
 
