@@ -17,6 +17,11 @@ Slash commands that let a server customize the bot:
 - `/setdescription <text>` — changes the bot's "About Me" text (shown on
   its Discord profile), **everywhere** it's added (admin-only by
   default). No gateway connection needed for this one.
+- `/addserver <game_name>` — submit a private server for a game to the
+  server list (open to everyone, subject to a per-user cooldown and
+  AI scam/spam screening before it reaches a mod for approval).
+- `/serverlist [game_name]` — browse approved servers, optionally
+  filtered to one game. See "Server list feature" below for full details.
 
 Runs on Cloudflare Workers using Discord's HTTP Interactions model — no
 always-on server, no gateway connection. Discord POSTs each slash command
