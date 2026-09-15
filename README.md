@@ -151,10 +151,27 @@ Worker.
 
 ### 3. Apply the schema
 
-Cloudflare dashboard → **Storage & databases** → **D1** → open your new
-database → **Console** tab. Paste the entire contents of `schema.sql`
-(in this repo's root) into the query box and run it. This creates the
-`servers`, `submission_cooldowns`, and `bot_settings` tables.
+The D1 dashboard's Console can be flaky with multi-line paste on mobile
+browsers. Instead, run it via a small script (same pattern as
+`register.mjs` — plain `fetch`, no wrangler):
+
+1. Create an API token: **dash.cloudflare.com/profile/api-tokens** →
+   **Create Token** → the "Edit Cloudflare Workers" template works, or a
+   custom token with **D1: Edit** permission.
+2. Run from Termux:
+   ```
+   cd ~/discord-bot
+   CF_API_TOKEN=your_api_token \
+   CF_ACCOUNT_ID=your_account_id \
+   CF_D1_DATABASE_ID=your_d1_database_id \
+   node apply-schema.mjs
+   ```
+   Your account ID and database ID are both in the D1 database's
+   dashboard URL: `dash.cloudflare.com/<ACCOUNT_ID>/workers/d1/databases/<DATABASE_ID>/...`
+
+This creates the `servers`, `submission_cooldowns`, and `bot_settings`
+tables one statement at a time, so a single bad paste can't silently skip
+half the schema.
 
 ### 4. Commit and push
 
