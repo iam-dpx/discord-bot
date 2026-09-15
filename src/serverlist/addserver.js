@@ -1,7 +1,7 @@
 import { getConfig } from './config.js';
 import { checkCooldown, recordSubmission } from './cooldown.js';
 import { screenSubmission } from './screening.js';
-import { sendMessage } from './discordApi.js';
+import { sendMessage, memberHasRole } from './discordApi.js';
 import { buildApprovalEmbed, buildApprovalComponents } from './embeds.js';
 import { searchGameNames } from './gameNames.js';
 
@@ -100,15 +100,19 @@ async function processSubmission(interaction, env) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
   const userName = interaction.member?.user?.username || interaction.user?.username;
 
-  const { onCooldown, secondsLeft } = await checkCooldown(db, userId);
-  if (onCooldown) {
-    // Can't edit the original ephemeral reply here without the interaction
-    // token dance; simplest is a DM or a followup message. Followup shown:
-    await followUp(env, interaction, {
-      content: `You're submitting too often — try again in ${secondsLeft}s.`,
-      flags: 64,
-    });
-    return;
+  const isMod = memberHasRole(interaction.member, config.modRoleId);
+
+  if (!isMod) {
+    const { onCooldown, secondsLeft } = await checkCooldown(db, userId);
+    if (onCooldown) {
+      // Can't edit the original ephemeral reply here without the interaction
+      // token dance; simplest is a DM or a followup message. Followup shown:
+      await followUp(env, interaction, {
+        content: `You're submitting too often — try again in ${secondsLeft}s.`,
+        flags: 64,
+      });
+      return;
+    }
   }
 
   const gameName = getGameNameFromCustomId(interaction.data.custom_id);
@@ -154,7 +158,9 @@ async function processSubmission(interaction, env) {
     .run();
 
   const serverId = insertResult.meta.last_row_id;
-  await recordSubmission(db, userId);
+  if (!isMod) {
+    await recordSubmission(db, userId);
+  }
 
   const embed = buildApprovalEmbed({ ...server, id: serverId }, screening);
   const components = buildApprovalComponents(serverId);
