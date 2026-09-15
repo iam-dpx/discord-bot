@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS submission_cooldowns (
   last_submitted_at INTEGER NOT NULL
 );
 
--- Simple key/value settings table so the cooldown (and other knobs) can be
+-- One key/value settings table so the cooldown (and other knobs) can be
 -- changed later without redeploying code.
 CREATE TABLE IF NOT EXISTS bot_settings (
   key TEXT PRIMARY KEY,
@@ -36,3 +36,63 @@ CREATE TABLE IF NOT EXISTS bot_settings (
 );
 
 INSERT OR IGNORE INTO bot_settings (key, value) VALUES ('submit_cooldown_seconds', '300');
+
+-- Reference list of game names, purely to seed the /addserver autocomplete
+-- with sensible suggestions before anyone has submitted anything for that
+-- game yet. Autocomplete also searches already-submitted games (see
+-- src/serverlist/gameNames.js), so this isn't a hard restriction — someone
+-- can still type a game not on this list.
+CREATE TABLE IF NOT EXISTS known_games (
+  name TEXT PRIMARY KEY
+);
+
+INSERT OR IGNORE INTO known_games (name) VALUES
+  -- Popular MOBA / mobile SEA titles
+  ('Mobile Legends: Bang Bang'),
+  ('Arena of Valor'),
+  ('Free Fire'),
+  ('PUBG Mobile'),
+  ('Call of Duty: Mobile'),
+  ('Point Blank'),
+  ('CrossFire'),
+  ('Rules of Survival'),
+  ('League of Legends'),
+  ('League of Legends: Wild Rift'),
+  ('Valorant'),
+  ('Dota 2'),
+  ('Counter-Strike 2'),
+  -- Sandbox / roleplay, strong private-server culture
+  ('Minecraft'),
+  ('Roblox'),
+  ('Growtopia'),
+  ('GTA V FiveM'),
+  ('GTA San Andreas Multiplayer (SA-MP)'),
+  ('Garry''s Mod'),
+  -- Classic MMORPGs with a long private-server history in SEA
+  ('Ragnarok Online'),
+  ('Ragnarok M: Eternal Love'),
+  ('MU Online'),
+  ('Cabal Online'),
+  ('Rohan Online'),
+  ('Lineage II'),
+  ('Perfect World'),
+  ('Silkroad Online'),
+  ('Priston Tale'),
+  ('Grand Fantasia'),
+  ('Metin2'),
+  -- Gacha / open world
+  ('Genshin Impact'),
+  ('Honkai: Star Rail'),
+  ('Honkai Impact 3rd'),
+  ('Zenless Zone Zero'),
+  ('Tower of Fantasy'),
+  -- Other popular titles
+  ('Clash of Clans'),
+  ('Clash Royale'),
+  ('Stumble Guys'),
+  ('Identity V'),
+  ('eFootball'),
+  ('EA Sports FC Mobile'),
+  ('Lost Ark'),
+  ('Black Desert Online'),
+  ('Undawn');

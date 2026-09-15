@@ -3,16 +3,32 @@ import { checkCooldown, recordSubmission } from './cooldown.js';
 import { screenSubmission } from './screening.js';
 import { sendMessage } from './discordApi.js';
 import { buildApprovalEmbed, buildApprovalComponents } from './embeds.js';
+import { searchGameNames } from './gameNames.js';
 
-// Called when the user runs /addserver — just opens the modal, no D1/AI work yet.
-export function openAddServerModal() {
+// Discord calls this as the user types in /addserver's game_name option.
+export async function handleAddServerAutocomplete(interaction, env) {
+  const focused = interaction.data.options?.find((o) => o.focused);
+  const typed = (focused?.value || '').trim();
+  const names = await searchGameNames(env.DB, typed);
+
+  return {
+    type: 8, // APPLICATION_COMMAND_AUTOCOMPLETE_RESULT
+    data: { choices: names.map((name) => ({ name, value: name })) },
+  };
+}
+
+// Called when the user runs /addserver — game_name already came in as a
+// command option (with autocomplete), so it's carried through in the
+// modal's custom_id rather than asked again as a text field. Modals can't
+// hold select menus or hidden fields, so encoding it in custom_id is the
+// simplest way to pass it along to the submit handler below.
+export function openAddServerModal(gameName) {
   return {
     type: 9, // MODAL
     data: {
-      custom_id: 'addserver_modal',
-      title: 'Submit a server',
+      custom_id: `addserver_modal|${encodeURIComponent(gameName)}`,
+      title: `Submit a server — ${gameName}`.slice(0, 45), // Discord caps modal titles at 45 chars
       components: [
-        textInputRow('game_name', 'Game name', 1, 100),
         textInputRow('server_name', 'Server name', 1, 100),
         textInputRow('region', 'Region (e.g. asia, eu, na)', 1, 50),
         textInputRow('about', 'About the server', 2, 500),
@@ -20,6 +36,11 @@ export function openAddServerModal() {
       ],
     },
   };
+}
+
+function getGameNameFromCustomId(customId) {
+  const [, encoded] = customId.split('|');
+  return decodeURIComponent(encoded || '');
 }
 
 function textInputRow(customId, label, style, maxLength) {
@@ -90,8 +111,10 @@ async function processSubmission(interaction, env) {
     return;
   }
 
+  const gameName = getGameNameFromCustomId(interaction.data.custom_id);
+
   const server = {
-    game_name: getModalValue(interaction, 'game_name'),
+    game_name: gameName,
     server_name: getModalValue(interaction, 'server_name'),
     region: getModalValue(interaction, 'region'),
     about: getModalValue(interaction, 'about'),

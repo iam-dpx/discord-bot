@@ -74,6 +74,15 @@ const commands = [
   {
     name: "addserver",
     description: "Submit a private server to the list",
+    options: [
+      {
+        name: "game_name",
+        description: "Which game is this server for?",
+        type: 3, // STRING
+        required: true,
+        autocomplete: true,
+      },
+    ],
   },
   {
     name: "serverlist",

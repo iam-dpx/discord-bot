@@ -196,6 +196,11 @@ DISCORD_TOKEN=your_token DISCORD_APPLICATION_ID=your_app_id node register.mjs
 
 ### Notes
 
+- `/addserver`'s `game_name` is a command option with autocomplete (not a
+  modal field) — it suggests from a seeded `known_games` list plus
+  whatever's already been approved, but still accepts free text for games
+  not on the list. Add more seed entries by inserting into `known_games`
+  via `apply-schema.mjs`-style queries or the D1 HTTP API directly.
 - Rejected submissions are silently dropped for now — no DM to the
   submitter. Can add that in `src/serverlist/approval.js` if wanted.
 - Submit cooldown defaults to 300 seconds (5 min), stored in the

@@ -1,4 +1,4 @@
-import { openAddServerModal, handleAddServerSubmit } from './addserver.js';
+import { openAddServerModal, handleAddServerSubmit, handleAddServerAutocomplete } from './addserver.js';
 import { handleApprovalButton } from './approval.js';
 import {
   handleServerlistCommand,
@@ -23,17 +23,23 @@ export async function handleServerListInteraction(interaction, env, ctx) {
 
   // Slash commands
   if (type === 2) {
-    if (name === 'addserver') return openAddServerModal();
+    if (name === 'addserver') {
+      const gameOption = interaction.data.options?.find((o) => o.name === 'game_name');
+      return openAddServerModal(gameOption?.value || 'Unknown game');
+    }
     if (name === 'serverlist') return handleServerlistCommand(interaction, env);
   }
 
   // Autocomplete while typing the game_name option
+  if (type === 4 && name === 'addserver') {
+    return handleAddServerAutocomplete(interaction, env);
+  }
   if (type === 4 && name === 'serverlist') {
     return handleServerlistAutocomplete(interaction, env);
   }
 
-  // Modal submission from /addserver
-  if (type === 5 && customId === 'addserver_modal') {
+  // Modal submission from /addserver — custom_id is "addserver_modal|<gameName>"
+  if (type === 5 && customId?.startsWith('addserver_modal')) {
     return handleAddServerSubmit(interaction, env, ctx);
   }
 
