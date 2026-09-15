@@ -217,6 +217,22 @@ DISCORD_TOKEN=your_token DISCORD_APPLICATION_ID=your_app_id node register.mjs
 - Servers-per-page for `/serverlist` is `PAGE_SIZE` in
   `src/serverlist/config.js`.
 
+## Restricting the bot to one server
+
+Two layers, both already in place:
+
+1. **Discord Developer Portal → your app → Bot → Public Bot: off.** This is
+   the main lock — it stops anyone but you from generating a working invite
+   link at all. It only blocks *future* invites, not servers the bot is
+   already in.
+2. **Code-level allowlist (`ALLOWED_GUILD_ID` in `wrangler.toml`).** Since
+   this bot has no gateway connection, it can't detect a new server the
+   moment it's added — it only finds out on that server's first
+   interaction. At that point it replies "This bot isn't available in this
+   server" and leaves automatically (`DELETE /users/@me/guilds/{id}`), so
+   it can't sit unnoticed in a server that got an invite link before
+   "Public Bot" was turned off.
+
 ## Known limitations (Discord's rules, not this code's)
 
 - `/setname` and `/setavatar` affect the bot **globally** — every server

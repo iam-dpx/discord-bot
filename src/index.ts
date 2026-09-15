@@ -20,6 +20,9 @@ export interface Env {
   DISCORD_PUBLIC_KEY: string;
   DISCORD_TOKEN: string;
   DISCORD_APPLICATION_ID: string;
+  // guild allowlist — the only server this bot is allowed to be in;
+  // it auto-leaves anywhere else (see handleGuildAllowlist below)
+  ALLOWED_GUILD_ID: string;
   // server list feature
   DB: any; // D1Database — typed as `any` to avoid pulling in @cloudflare/workers-types
   AI: any; // Ai — same reasoning
@@ -54,6 +57,25 @@ function arrayBufferToBase64(buf: ArrayBuffer): string {
     binary += String.fromCharCode(b);
   });
   return btoa(binary);
+}
+
+// Leaves any guild that isn't the one allowed server. Making the app a
+// "private" bot in the Discord Developer Portal (Bot → Public Bot: off) is
+// the main defense — it stops anyone else from generating a working invite
+// link in the first place. This is a backup for the HTTP-Interactions-only
+// case: this bot has no gateway connection, so it can't detect a new guild
+// the moment it's added (no GUILD_CREATE event) — it only finds out once
+// that server sends its first interaction, at which point this kicks it out.
+function isDisallowedGuild(env: Env, guildId: string | undefined): guildId is string {
+  return !!guildId && !!env.ALLOWED_GUILD_ID && guildId !== env.ALLOWED_GUILD_ID;
+}
+
+async function leaveGuild(env: Env, guildId: string): Promise<void> {
+  try {
+    await discordApi(env, `/users/@me/guilds/${guildId}`, { method: "DELETE" });
+  } catch (err) {
+    console.error(`Failed to leave disallowed guild ${guildId}:`, err);
+  }
 }
 
 async function discordApi(env: Env, path: string, init: RequestInit): Promise<Response> {
@@ -277,6 +299,11 @@ export default {
 
     if (interaction.type === InteractionType.PING) {
       return jsonResponse({ type: InteractionResponseType.PONG });
+    }
+
+    if (isDisallowedGuild(env, interaction.guild_id)) {
+      ctx.waitUntil(leaveGuild(env, interaction.guild_id));
+      return ephemeralReply("This bot isn't available in this server.");
     }
 
     // Server list feature owns /addserver, /serverlist, their autocomplete,
