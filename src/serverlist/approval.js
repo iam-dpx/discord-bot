@@ -82,20 +82,16 @@ async function resolveRevoke(serverId, interaction, env) {
   const server = await db.prepare('SELECT * FROM servers WHERE id = ?').bind(serverId).first();
   if (!server || server.status !== 'approved') return; // not currently live, nothing to revoke
 
-  const nowSeconds = Math.floor(Date.now() / 1000);
   const modId = interaction.member.user.id;
 
   if (server.public_message_id) {
     await deleteMessage(config.discordToken, config.publicChannelId, server.public_message_id);
   }
 
-  await db
-    .prepare("UPDATE servers SET status = 'revoked', resolved_at = ? WHERE id = ?")
-    .bind(nowSeconds, serverId)
-    .run();
+  await db.prepare('DELETE FROM servers WHERE id = ?').bind(serverId).run();
 
   await editMessage(config.discordToken, config.approvalChannelId, server.approval_message_id, {
     components: buildRevokeComponents(serverId, true),
-    content: `**REVOKED** by <@${modId}> (previously approved)`,
+    content: `**REVOKED** by <@${modId}> (previously approved — removed from the database)`,
   });
 }

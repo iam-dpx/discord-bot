@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS servers (
   region TEXT NOT NULL,
   about TEXT NOT NULL,
   invite_link TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending', -- pending | approved | rejected | revoked
+  status TEXT NOT NULL DEFAULT 'pending', -- pending | approved | rejected (revoked rows are deleted, not flagged)
   submitted_by_id TEXT NOT NULL,
   submitted_by_name TEXT NOT NULL,
   approval_message_id TEXT,          -- message id in the approval channel (to edit later)

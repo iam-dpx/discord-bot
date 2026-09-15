@@ -45,9 +45,21 @@ export async function deleteMessage(botToken, channelId, messageId) {
 
 // Resolves a Discord invite code (e.g. "abc123" from discord.gg/abc123) so we
 // can confirm it actually points at a real, joinable server before approval.
-export async function resolveInvite(inviteCode) {
-  const res = await fetch(`${API}/invites/${inviteCode}?with_counts=true`);
-  if (!res.ok) return null; // invalid, expired, or revoked invite
+// Authenticated with the bot token deliberately: Cloudflare Workers share
+// outbound IPs across many customers, so the unauthenticated version of this
+// endpoint can get rate-limited by traffic that has nothing to do with this
+// bot. Using the bot token gives it its own per-application rate limit.
+export async function resolveInvite(inviteCode, botToken) {
+  const res = await fetch(`${API}/invites/${inviteCode}?with_counts=true`, {
+    headers: {
+      Authorization: `Bot ${botToken}`,
+      'User-Agent': 'DiscordBot (dead-pixel-discord-bot, 1.0)',
+    },
+  });
+  if (!res.ok) {
+    console.error(`resolveInvite failed for code "${inviteCode}": ${res.status} ${await res.text()}`);
+    return null;
+  }
   return res.json();
 }
 

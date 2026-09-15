@@ -7,7 +7,7 @@ export async function screenSubmission(env, { about, invite_link, game_name, ser
     return { flag: 'invalid_invite', reason: 'Link is not a recognizable Discord invite.' };
   }
 
-  const invite = await resolveInvite(inviteCode);
+  const invite = await resolveInvite(inviteCode, env.DISCORD_TOKEN);
   if (!invite) {
     return { flag: 'invalid_invite', reason: 'Invite is expired, revoked, or invalid.' };
   }
