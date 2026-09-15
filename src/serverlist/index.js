@@ -39,7 +39,7 @@ export async function handleServerListInteraction(interaction, env, ctx) {
 
   // Buttons
   if (type === 3 && customId) {
-    if (customId.startsWith('approve_') || customId.startsWith('reject_')) {
+    if (customId.startsWith('approve_') || customId.startsWith('reject_') || customId.startsWith('revoke_')) {
       return handleApprovalButton(interaction, env, ctx);
     }
     if (customId.startsWith('serverlist_page_')) {

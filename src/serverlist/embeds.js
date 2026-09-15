@@ -30,6 +30,20 @@ export function buildApprovalComponents(serverId, disabled = false) {
   ];
 }
 
+// Shown on the approval message in place of Approve/Reject once a
+// submission is approved, so a mod can pull it back later if the server
+// goes offline. Left active (not disabled) unless it's already been used.
+export function buildRevokeComponents(serverId, disabled = false) {
+  return [
+    {
+      type: 1,
+      components: [
+        { type: 2, style: 4, label: 'Revoke', custom_id: `revoke_${serverId}`, disabled },
+      ],
+    },
+  ];
+}
+
 export function buildPublicEmbed(server) {
   return {
     title: `${server.game_name} — ${server.server_name}`,

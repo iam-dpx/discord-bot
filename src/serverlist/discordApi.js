@@ -31,6 +31,18 @@ export async function editMessage(botToken, channelId, messageId, payload) {
   return res.json();
 }
 
+export async function deleteMessage(botToken, channelId, messageId) {
+  const res = await fetch(`${API}/channels/${channelId}/messages/${messageId}`, {
+    method: 'DELETE',
+    headers: authHeaders(botToken),
+  });
+  // 404 means it's already gone (manually deleted, etc.) — treat as success
+  // rather than failing the whole revoke.
+  if (!res.ok && res.status !== 404) {
+    throw new Error(`deleteMessage failed: ${res.status} ${await res.text()}`);
+  }
+}
+
 // Resolves a Discord invite code (e.g. "abc123" from discord.gg/abc123) so we
 // can confirm it actually points at a real, joinable server before approval.
 export async function resolveInvite(inviteCode) {
