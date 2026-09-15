@@ -1,8 +1,8 @@
 import { extractInviteCode, resolveInvite } from './discordApi.js';
 
 // Returns { flag: 'clean' | 'flagged' | 'invalid_invite', reason?: string }
-export async function screenSubmission(env, { aboutText, inviteLink, gameName, serverName }) {
-  const inviteCode = extractInviteCode(inviteLink);
+export async function screenSubmission(env, { about, invite_link, game_name, server_name }) {
+  const inviteCode = extractInviteCode(invite_link);
   if (!inviteCode) {
     return { flag: 'invalid_invite', reason: 'Link is not a recognizable Discord invite.' };
   }
@@ -19,9 +19,9 @@ Given a submission, decide if it looks like a scam, phishing attempt, or spam
 (e.g. fake nitro/gift links, crypto scam wording, impersonation of Discord/Nitro,
 unrelated advertising). Legitimate gaming server descriptions are common and fine.
 
-Game: ${gameName}
-Server name: ${serverName}
-About text: ${aboutText}
+Game: ${game_name}
+Server name: ${server_name}
+About text: ${about}
 
 Respond with ONLY compact JSON, no other text:
 {"scam": true|false, "reason": "short reason, empty string if not a scam"}`;

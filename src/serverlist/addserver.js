@@ -51,7 +51,19 @@ function getModalValue(interaction, customId) {
 // so we defer immediately and do the real work (cooldown, AI screening, D1
 // insert, posting to the approval channel) inside ctx.waitUntil.
 export function handleAddServerSubmit(interaction, env, ctx) {
-  ctx.waitUntil(processSubmission(interaction, env));
+  ctx.waitUntil(
+    processSubmission(interaction, env).catch(async (err) => {
+      console.error('addserver submission failed:', err.stack || err.message || err);
+      try {
+        await followUp(env, interaction, {
+          content: 'Something went wrong processing your submission — please try again, or tell a mod if it keeps happening.',
+          flags: 64,
+        });
+      } catch (followUpErr) {
+        console.error('addserver followup also failed:', followUpErr.stack || followUpErr.message || followUpErr);
+      }
+    })
+  );
   return {
     type: 4, // CHANNEL_MESSAGE_WITH_SOURCE (ephemeral)
     data: {
@@ -71,7 +83,7 @@ async function processSubmission(interaction, env) {
   if (onCooldown) {
     // Can't edit the original ephemeral reply here without the interaction
     // token dance; simplest is a DM or a followup message. Followup shown:
-    await followUp(config.discordToken, interaction, {
+    await followUp(env, interaction, {
       content: `You're submitting too often — try again in ${secondsLeft}s.`,
       flags: 64,
     });
@@ -91,7 +103,7 @@ async function processSubmission(interaction, env) {
   const screening = await screenSubmission(env, server);
 
   if (screening.flag === 'invalid_invite') {
-    await followUp(config.discordToken, interaction, {
+    await followUp(env, interaction, {
       content: `That invite link doesn't look valid: ${screening.reason}`,
       flags: 64,
     });
@@ -134,14 +146,17 @@ async function processSubmission(interaction, env) {
     .run();
 }
 
-async function followUp(botToken, interaction, payload) {
+async function followUp(env, interaction, payload) {
   // Followup messages use the interaction token, valid for 15 minutes, and
   // don't require the bot token in the URL — but the endpoint still needs
   // the application id.
   const url = `https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}`;
-  await fetch(url, {
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
+  if (!res.ok) {
+    throw new Error(`followUp failed: ${res.status} ${await res.text()}`);
+  }
 }
