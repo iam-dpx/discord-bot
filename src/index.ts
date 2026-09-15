@@ -13,11 +13,19 @@ import {
   InteractionType,
   InteractionResponseType,
 } from "discord-interactions";
+// @ts-ignore — plain JS module, no types; see src/serverlist/*.js
+import { handleServerListInteraction } from "./serverlist/index.js";
 
 export interface Env {
   DISCORD_PUBLIC_KEY: string;
   DISCORD_TOKEN: string;
   DISCORD_APPLICATION_ID: string;
+  // server list feature
+  DB: any; // D1Database — typed as `any` to avoid pulling in @cloudflare/workers-types
+  AI: any; // Ai — same reasoning
+  APPROVAL_CHANNEL_ID: string;
+  PUBLIC_CHANNEL_ID: string;
+  MOD_ROLE_ID: string;
 }
 
 const DISCORD_API = "https://discord.com/api/v10";
@@ -240,7 +248,7 @@ async function handleInfoRequest(env: Env): Promise<Response> {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     if (request.method === "GET" && url.pathname === "/info") {
@@ -269,6 +277,14 @@ export default {
 
     if (interaction.type === InteractionType.PING) {
       return jsonResponse({ type: InteractionResponseType.PONG });
+    }
+
+    // Server list feature owns /addserver, /serverlist, their autocomplete,
+    // modal submission, and their buttons. It returns null for anything
+    // that isn't one of those, so the existing commands below are untouched.
+    const serverListResult = await handleServerListInteraction(interaction, env, ctx);
+    if (serverListResult) {
+      return jsonResponse(serverListResult);
     }
 
     if (interaction.type === InteractionType.APPLICATION_COMMAND) {

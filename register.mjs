@@ -71,6 +71,23 @@ const commands = [
       },
     ],
   },
+  {
+    name: "addserver",
+    description: "Submit a private server to the list",
+  },
+  {
+    name: "serverlist",
+    description: "Browse submitted servers",
+    options: [
+      {
+        name: "game_name",
+        description: "Filter by game",
+        type: 3, // STRING
+        required: false,
+        autocomplete: true,
+      },
+    ],
+  },
 ];
 
 const res = await fetch(`https://discord.com/api/v10/applications/${appId}/commands`, {

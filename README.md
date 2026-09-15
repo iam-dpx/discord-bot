@@ -125,6 +125,71 @@ this is what powers the "Live status" panel on the site's
 wired into the site (currently a placeholder in
 `src/discord-bot-status.ts`).
 
+## Server list feature (`/addserver`, `/serverlist`)
+
+Adds a D1-backed private-server listing with AI scam/spam screening on
+submission. Setup is done through the Cloudflare dashboard, same as
+everything else in this repo — no wrangler CLI needed, since that can't
+run on Termux anyway.
+
+### 1. Create the D1 database
+
+Cloudflare dashboard → **Storage & databases** → **D1** → **Create
+database** → name it (e.g. `discord-bot-db`). Copy the **database ID** it
+shows you.
+
+### 2. Add the binding to `wrangler.toml`
+
+Open `wrangler.toml` in this repo and paste the database ID into the
+`database_id` field under `[[d1_databases]]` (already scaffolded in the
+file). Also fill in `APPROVAL_CHANNEL_ID`, `PUBLIC_CHANNEL_ID`, and
+`MOD_ROLE_ID` under `[vars]` — enable Developer Mode in Discord, then
+right-click a channel or role → **Copy ID** to get these.
+
+The `[ai]` binding needs no ID — it just turns on Workers AI for this
+Worker.
+
+### 3. Apply the schema
+
+Cloudflare dashboard → **Storage & databases** → **D1** → open your new
+database → **Console** tab. Paste the entire contents of `schema.sql`
+(in this repo's root) into the query box and run it. This creates the
+`servers`, `submission_cooldowns`, and `bot_settings` tables.
+
+### 4. Commit and push
+
+```
+cd ~/discord-bot
+git add .
+git commit -m "Configure server list feature"
+git push
+```
+
+Cloudflare's Git integration redeploys automatically and picks up the new
+bindings from `wrangler.toml`.
+
+### 5. Register the two new commands
+
+Already added to the `commands` array in `register.mjs` — just re-run the
+same registration step from setup step 6 above:
+```
+cd ~/discord-bot
+DISCORD_TOKEN=your_token DISCORD_APPLICATION_ID=your_app_id node register.mjs
+```
+
+### Notes
+
+- Rejected submissions are silently dropped for now — no DM to the
+  submitter. Can add that in `src/serverlist/approval.js` if wanted.
+- Submit cooldown defaults to 300 seconds (5 min), stored in the
+  `bot_settings` D1 table so it can be changed without a redeploy — run
+  this in the D1 Console tab:
+  ```sql
+  UPDATE bot_settings SET value = '600' WHERE key = 'submit_cooldown_seconds';
+  ```
+- Servers-per-page for `/serverlist` is `PAGE_SIZE` in
+  `src/serverlist/config.js`.
+
 ## Known limitations (Discord's rules, not this code's)
 
 - `/setname` and `/setavatar` affect the bot **globally** — every server

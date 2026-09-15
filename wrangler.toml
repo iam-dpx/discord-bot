@@ -6,7 +6,25 @@ name = "dead-pixel-discord-bot"
 main = "src/index.ts"
 compatibility_date = "2024-09-23"
 
-# Secrets are set via `wrangler secret put <NAME>` — never written here:
+# Secrets are set via the Cloudflare dashboard (Settings → Variables and
+# Secrets → encrypted), same as before — never written here:
 #   DISCORD_TOKEN
 #   DISCORD_PUBLIC_KEY
 #   DISCORD_APPLICATION_ID
+
+# --- Server list feature ---
+# Fill in database_id after creating the D1 database in the dashboard
+# (Storage & databases → D1 → Create database). Everything else here is
+# plain (non-secret) config, so it's fine committed to the repo.
+[[d1_databases]]
+binding = "DB"
+database_name = "discord-bot-db"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+[ai]
+binding = "AI"
+
+[vars]
+APPROVAL_CHANNEL_ID = "REPLACE_WITH_APPROVAL_CHANNEL_ID"
+PUBLIC_CHANNEL_ID = "REPLACE_WITH_PUBLIC_CHANNEL_ID"
+MOD_ROLE_ID = "REPLACE_WITH_MOD_ROLE_ID"
