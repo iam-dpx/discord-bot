@@ -14,29 +14,92 @@
   this.
 */
 
+/*
+  rules.ts
+  Owner-only /rules command. Posts two embeds to RULES_CHANNEL_ID — Discord's
+  own platform-wide rules, and this server's community rules — and deletes
+  the previous rules message first if one exists, so re-running it after an
+  edit leaves exactly one rules message in the channel, not a growing pile
+  of old versions.
+
+  The message id is remembered in D1's `bot_settings` table (the same
+  key/value table the server-list feature already uses), keyed as
+  "rules_message_id" — no schema change needed.
+
+  IMPORTANT:
+  - The "Discord's Official Rules" embed is a paraphrased summary of
+    Discord's Community Guidelines (discord.com/guidelines), not the
+    verbatim text — Discord's own wording is their copyrighted document,
+    and it can also change on their end, so the embed links to the
+    official page for the full, current, authoritative text rather than
+    trying to keep a copy in sync here.
+  - The "Community Rules" embed is a generic baseline built from what most
+    Discord servers commonly include (respect, no spam, use the right
+    channels, etc.) — genuinely common conventions, not any one server's
+    specific rules. Edit buildCommunityRulesEmbed() to match anything
+    specific to your server (voice chat conduct, NSFW channel policy if
+    you have one, your own enforcement ladder, etc.) before relying on it.
+*/
+
 import type { Env } from "./index";
 import { discordApi, ephemeralReply } from "./shared";
 
-function buildRulesEmbed() {
+function buildDiscordRulesEmbed() {
   return {
-    title: "📜 Community Rules",
-    color: 0x5865f2,
+    title: "📘 Discord's Official Rules",
+    color: 0x5865f2, // Discord blurple
     description:
-      "By being in this server, you agree to follow these rules. Breaking them can lead to a warning, mute, kick, or ban at a moderator's discretion.",
+      "These come from Discord itself and apply on every server, not just this one — they're part of Discord's Terms of Service. Full text: https://discord.com/guidelines",
+    fields: [
+      {
+        name: "Respect people",
+        value:
+          "No hate speech, harassment, threats, or discriminatory conduct based on someone's protected characteristics.",
+      },
+      {
+        name: "Keep people safe",
+        value:
+          "No doxxing or sharing someone's private info without consent, and no organizing, promoting, or glorifying violence or extremism.",
+      },
+      {
+        name: "Be honest",
+        value: "No impersonation, fake profiles, or spreading harmful misinformation.",
+      },
+      {
+        name: "Keep content appropriate",
+        value: "No illegal content, and no NSFW/graphic content outside properly age-gated, marked channels.",
+      },
+      {
+        name: "Respect ownership",
+        value: "No sharing pirated content, game cheats/hacks, or otherwise violating someone else's IP rights.",
+      },
+      {
+        name: "No spam, scams, or malware",
+        value: "No malicious links, phishing, or deceptive/scam content.",
+      },
+    ],
+    footer: { text: "Paraphrased summary — see discord.com/guidelines for the full, authoritative text." },
+  };
+}
+
+function buildCommunityRulesEmbed() {
+  return {
+    title: "📜 This Server's Community Rules",
+    color: 0x57f287, // green
+    description:
+      "On top of Discord's own rules above, this server follows these. Breaking them can lead to a warning, mute, kick, or ban at a moderator's discretion.",
     fields: [
       {
         name: "1. Be respectful",
-        value:
-          "No harassment, hate speech, discrimination, or personal attacks. Disagree without being disrespectful.",
+        value: "Disagreement is fine. Personal attacks, insults, and targeted harassment aren't.",
       },
       {
-        name: "2. Keep it appropriate",
-        value: "No NSFW or gore, and nothing that violates Discord's Terms of Service or Community Guidelines.",
+        name: "2. No spam or self-promotion",
+        value: "No mass-mentions, unsolicited DMs, or advertising other servers/products outside designated channels.",
       },
       {
-        name: "3. No spam or self-promotion",
-        value:
-          "No mass-mentions, unsolicited DMs, or advertising other servers/products outside designated channels.",
+        name: "3. Use the right channel",
+        value: "Keep topics in the channel they belong in — check channel descriptions if unsure.",
       },
       {
         name: "4. Server list submissions",
@@ -47,8 +110,12 @@ function buildRulesEmbed() {
         name: "5. Follow staff instructions",
         value: "Moderator decisions are final. If you disagree, DM a mod instead of arguing in public channels.",
       },
+      {
+        name: "6. No ban evasion",
+        value: "Using an alt account to get around a mute or ban is treated as a separate, bannable offense.",
+      },
     ],
-    footer: { text: "Edit this text in src/rules.ts — this is placeholder wording." },
+    footer: { text: "Placeholder baseline — edit buildCommunityRulesEmbed() in src/rules.ts for your server." },
     timestamp: new Date().toISOString(),
   };
 }
@@ -72,7 +139,7 @@ export async function handleRulesCommand(env: Env): Promise<Response> {
 
   const postRes = await discordApi(env, `/channels/${env.RULES_CHANNEL_ID}/messages`, {
     method: "POST",
-    body: JSON.stringify({ embeds: [buildRulesEmbed()] }),
+    body: JSON.stringify({ embeds: [buildDiscordRulesEmbed(), buildCommunityRulesEmbed()] }),
   });
 
   if (!postRes.ok) {

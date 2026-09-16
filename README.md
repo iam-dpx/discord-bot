@@ -17,10 +17,13 @@ Slash commands that let a server customize the bot:
 - `/setdescription <text>` — changes the bot's "About Me" text (shown on
   its Discord profile), **everywhere** it's added. **Owner-only.** No
   gateway connection needed for this one.
-- `/rules` — **Owner-only.** Posts the community rules embed to
-  `RULES_CHANNEL_ID`. Running it again deletes the previous rules message
-  first, so there's always exactly one, never a growing pile of old
-  versions. See "Owner-only commands" below.
+- `/rules` — **Owner-only.** Posts two embeds to `RULES_CHANNEL_ID`: a
+  paraphrased summary of Discord's own platform-wide rules (with a link
+  to discord.com/guidelines for the full text), and a separate "This
+  Server's Community Rules" embed for your server's own baseline.
+  Running it again deletes the previous rules message first, so there's
+  always exactly one, never a growing pile of old versions. See
+  "Owner-only commands" below.
 - `/addserver <game_name>` — submit a private server for a game to the
   server list (open to everyone, subject to a per-user cooldown and
   AI scam/spam screening before it reaches a mod for approval).
@@ -41,11 +44,14 @@ others), but the actual enforcement is the ID check in `index.ts`
 (`isOwner()`), since server permissions can be reconfigured by anyone
 with "Manage Server" while a hardcoded user ID can't.
 
-`/rules`'s content is a **generic placeholder** — edit
-`buildRulesEmbed()` in `src/rules.ts` to your server's actual rules
-before relying on it. The posted message's ID is remembered in D1's
-`bot_settings` table (`rules_message_id`) so re-running the command
-knows which old message to delete.
+`/rules` posts two embeds: Discord's own rules (paraphrased from
+discord.com/guidelines — not copied verbatim, since that's Discord's own
+document and can change) and a separate community-rules embed that's a
+**generic placeholder** — edit `buildCommunityRulesEmbed()` in
+`src/rules.ts` to your server's actual rules before relying on it. The
+posted message's ID is remembered in D1's `bot_settings` table
+(`rules_message_id`) so re-running the command knows which old message to
+delete.
 
 ## One-time setup
 
