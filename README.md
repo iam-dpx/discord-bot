@@ -8,15 +8,19 @@
 Slash commands that let a server customize the bot:
 
 - `/setnickname <name>` — changes the bot's nickname **in that server only**.
-  Anyone with "Manage Nicknames" can run it.
-- `/setname <name>` — changes the bot's **username everywhere** it's added
-  (admin-only by default). Discord limits this to ~2 changes per hour.
-- `/setavatar <url>` — changes the bot's **avatar everywhere** it's added
-  (admin-only by default). Discord limits this to roughly once per 10
-  minutes.
+  **Owner-only** (checked against `OWNER_USER_ID`, not just Discord
+  permissions — see "Owner-only commands" below).
+- `/setname <name>` — changes the bot's **username everywhere** it's added.
+  **Owner-only.** Discord limits this to ~2 changes per hour.
+- `/setavatar <url>` — changes the bot's **avatar everywhere** it's added.
+  **Owner-only.** Discord limits this to roughly once per 10 minutes.
 - `/setdescription <text>` — changes the bot's "About Me" text (shown on
-  its Discord profile), **everywhere** it's added (admin-only by
-  default). No gateway connection needed for this one.
+  its Discord profile), **everywhere** it's added. **Owner-only.** No
+  gateway connection needed for this one.
+- `/rules` — **Owner-only.** Posts the community rules embed to
+  `RULES_CHANNEL_ID`. Running it again deletes the previous rules message
+  first, so there's always exactly one, never a growing pile of old
+  versions. See "Owner-only commands" below.
 - `/addserver <game_name>` — submit a private server for a game to the
   server list (open to everyone, subject to a per-user cooldown and
   AI scam/spam screening before it reaches a mod for approval).
@@ -26,6 +30,22 @@ Slash commands that let a server customize the bot:
 Runs on Cloudflare Workers using Discord's HTTP Interactions model — no
 always-on server, no gateway connection. Discord POSTs each slash command
 straight to this Worker's URL.
+
+## Owner-only commands
+
+`/setnickname`, `/setname`, `/setavatar`, `/setdescription`, and `/rules`
+check the caller's Discord user ID against the `OWNER_USER_ID` env var in
+`wrangler.toml` — Discord's own `default_member_permissions` on the
+command is set too (as a first filter so it doesn't even show up for
+others), but the actual enforcement is the ID check in `index.ts`
+(`isOwner()`), since server permissions can be reconfigured by anyone
+with "Manage Server" while a hardcoded user ID can't.
+
+`/rules`'s content is a **generic placeholder** — edit
+`buildRulesEmbed()` in `src/rules.ts` to your server's actual rules
+before relying on it. The posted message's ID is remembered in D1's
+`bot_settings` table (`rules_message_id`) so re-running the command
+knows which old message to delete.
 
 ## One-time setup
 

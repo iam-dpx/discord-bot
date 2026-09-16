@@ -15,6 +15,8 @@ import {
 } from "discord-interactions";
 // @ts-ignore — plain JS module, no types; see src/serverlist/*.js
 import { handleServerListInteraction } from "./serverlist/index.js";
+import { discordApi, ephemeralReply, jsonResponse } from "./shared";
+import { handleRulesCommand } from "./rules";
 
 export interface Env {
   DISCORD_PUBLIC_KEY: string;
@@ -23,6 +25,9 @@ export interface Env {
   // guild allowlist — the only server this bot is allowed to be in;
   // it auto-leaves anywhere else (see handleGuildAllowlist below)
   ALLOWED_GUILD_ID: string;
+  // owner-only commands (setname/setnickname/setavatar/setdescription/rules)
+  OWNER_USER_ID: string;
+  RULES_CHANNEL_ID: string;
   // server list feature
   DB: any; // D1Database — typed as `any` to avoid pulling in @cloudflare/workers-types
   AI: any; // Ai — same reasoning
@@ -31,24 +36,9 @@ export interface Env {
   MOD_ROLE_ID: string;
 }
 
-const DISCORD_API = "https://discord.com/api/v10";
 const EPHEMERAL = 64; // Discord message flag: only the command's caller sees the reply
 
 /* ---------- small helpers ---------- */
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
-}
-
-function ephemeralReply(content: string): Response {
-  return jsonResponse({
-    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-    data: { content, flags: EPHEMERAL },
-  });
-}
 
 function arrayBufferToBase64(buf: ArrayBuffer): string {
   const bytes = new Uint8Array(buf);
@@ -76,17 +66,6 @@ async function leaveGuild(env: Env, guildId: string): Promise<void> {
   } catch (err) {
     console.error(`Failed to leave disallowed guild ${guildId}:`, err);
   }
-}
-
-async function discordApi(env: Env, path: string, init: RequestInit): Promise<Response> {
-  return fetch(`${DISCORD_API}${path}`, {
-    ...init,
-    headers: {
-      ...(init.headers || {}),
-      Authorization: `Bot ${env.DISCORD_TOKEN}`,
-      "content-type": "application/json",
-    },
-  });
 }
 
 /* ---------- command handlers ---------- */
@@ -184,10 +163,17 @@ interface DiscordOption {
 interface DiscordInteraction {
   type: number;
   guild_id?: string;
+  member?: { user?: { id: string }; roles?: string[] };
+  user?: { id: string };
   data?: {
     name?: string;
     options?: DiscordOption[];
   };
+}
+
+function isOwner(env: Env, interaction: DiscordInteraction): boolean {
+  const userId = interaction.member?.user?.id || interaction.user?.id;
+  return !!userId && !!env.OWNER_USER_ID && userId === env.OWNER_USER_ID;
 }
 
 async function handleCommand(env: Env, interaction: DiscordInteraction): Promise<Response> {
@@ -198,6 +184,7 @@ async function handleCommand(env: Env, interaction: DiscordInteraction): Promise
 
   switch (name) {
     case "setnickname": {
+      if (!isOwner(env, interaction)) return ephemeralReply("Only the bot owner can use this command.");
       const guildId = interaction.guild_id;
       const nickname = getOption("nickname");
       if (!guildId) return ephemeralReply("This command only works inside a server.");
@@ -205,19 +192,26 @@ async function handleCommand(env: Env, interaction: DiscordInteraction): Promise
       return handleSetNickname(env, guildId, nickname);
     }
     case "setname": {
+      if (!isOwner(env, interaction)) return ephemeralReply("Only the bot owner can use this command.");
       const username = getOption("username");
       if (!username) return ephemeralReply("Give me a username to set.");
       return handleSetName(env, username);
     }
     case "setavatar": {
+      if (!isOwner(env, interaction)) return ephemeralReply("Only the bot owner can use this command.");
       const url = getOption("url");
       if (!url) return ephemeralReply("Give me an image URL to use.");
       return handleSetAvatar(env, url);
     }
     case "setdescription": {
+      if (!isOwner(env, interaction)) return ephemeralReply("Only the bot owner can use this command.");
       const description = getOption("text");
       if (!description) return ephemeralReply("Give me the new description text.");
       return handleSetDescription(env, description);
+    }
+    case "rules": {
+      if (!isOwner(env, interaction)) return ephemeralReply("Only the bot owner can use this command.");
+      return handleRulesCommand(env);
     }
     default:
       return ephemeralReply("Unknown command.");

@@ -72,6 +72,11 @@ const commands = [
     ],
   },
   {
+    name: "rules",
+    description: "Post (or refresh) the community rules in the rules channel — owner only",
+    default_member_permissions: "8",
+  },
+  {
     name: "addserver",
     description: "Submit a private server to the list",
     options: [
