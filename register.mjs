@@ -72,6 +72,21 @@ const commands = [
     ],
   },
   {
+    name: "clear",
+    description: "Delete recent messages in this channel (mod only)",
+    default_member_permissions: "8192", // MANAGE_MESSAGES — visibility filter only; real check is the mod role in index.ts
+    options: [
+      {
+        name: "amount",
+        description: "How many messages to delete, 1-100 (default 100)",
+        type: 4, // INTEGER
+        required: false,
+        min_value: 1,
+        max_value: 100,
+      },
+    ],
+  },
+  {
     name: "rules",
     description: "Post (or refresh) the community rules in the rules channel — owner only",
     default_member_permissions: "8",

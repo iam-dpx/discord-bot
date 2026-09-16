@@ -24,6 +24,17 @@ Slash commands that let a server customize the bot:
   Running it again deletes the previous rules message first, so there's
   always exactly one, never a growing pile of old versions. See
   "Owner-only commands" below.
+- `/clear [amount]` — **Mod-role only** (checked against `MOD_ROLE_ID`,
+  same role used for server-list approvals). Deletes the most recent
+  `amount` messages (1-100, default 100) in the channel it's run in.
+  Discord's bulk-delete endpoint can't touch messages older than 14
+  days — anything older than that in the batch is skipped, and the
+  reply tells you how many. There's no single Discord API call to wipe
+  a channel's *entire* history regardless of age — the only way to do
+  that instantly is delete-and-recreate the channel (same name/settings,
+  new channel ID), which isn't implemented here since it would silently
+  break `APPROVAL_CHANNEL_ID`/`PUBLIC_CHANNEL_ID`/`RULES_CHANNEL_ID` if
+  ever run on one of those channels.
 - `/addserver <game_name>` — submit a private server for a game to the
   server list (open to everyone, subject to a per-user cooldown and
   AI scam/spam screening before it reaches a mod for approval).

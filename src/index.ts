@@ -153,16 +153,66 @@ async function handleSetAvatar(env: Env, imageUrl: string): Promise<Response> {
   return ephemeralReply("Avatar updated — heads up, this changes it everywhere the bot is added, not just here.");
 }
 
+// Bulk-deletes recent messages in the channel the command was run in.
+// Two real limits from Discord's own API, not this code:
+//   - bulk-delete only accepts messages younger than 14 days; anything
+//     older is silently skipped here (reported in the reply) rather than
+//     erroring the whole command.
+//   - bulk-delete needs 2+ message IDs; exactly 1 falls back to a normal
+//     single DELETE.
+async function handleClear(env: Env, channelId: string, amount: number): Promise<Response> {
+  const clamped = Math.min(Math.max(amount, 1), 100);
+
+  const listRes = await discordApi(env, `/channels/${channelId}/messages?limit=${clamped}`, { method: "GET" });
+  if (!listRes.ok) {
+    return ephemeralReply(`Couldn't fetch messages to delete (Discord said: ${listRes.status}).`);
+  }
+  const messages = (await listRes.json()) as { id: string; timestamp: string }[];
+
+  if (messages.length === 0) {
+    return ephemeralReply("Nothing to delete — this channel has no recent messages.");
+  }
+
+  const fourteenDaysAgo = Date.now() - 14 * 24 * 60 * 60 * 1000;
+  const deletable = messages.filter((m) => new Date(m.timestamp).getTime() > fourteenDaysAgo);
+  const tooOld = messages.length - deletable.length;
+
+  if (deletable.length === 0) {
+    return ephemeralReply(
+      "All of those messages are older than 14 days — Discord doesn't allow bulk-deleting messages that old."
+    );
+  }
+
+  if (deletable.length === 1) {
+    const res = await discordApi(env, `/channels/${channelId}/messages/${deletable[0].id}`, { method: "DELETE" });
+    if (!res.ok && res.status !== 404) {
+      return ephemeralReply(`Couldn't delete that message (Discord said: ${res.status}).`);
+    }
+  } else {
+    const res = await discordApi(env, `/channels/${channelId}/messages/bulk-delete`, {
+      method: "POST",
+      body: JSON.stringify({ messages: deletable.map((m) => m.id) }),
+    });
+    if (!res.ok) {
+      return ephemeralReply(`Couldn't delete messages (Discord said: ${res.status}).`);
+    }
+  }
+
+  const skippedNote = tooOld > 0 ? ` (${tooOld} skipped — older than 14 days)` : "";
+  return ephemeralReply(`Deleted ${deletable.length} message${deletable.length === 1 ? "" : "s"}.${skippedNote}`);
+}
+
 /* ---------- interaction routing ---------- */
 
 interface DiscordOption {
   name: string;
-  value?: string;
+  value?: string | number;
 }
 
 interface DiscordInteraction {
   type: number;
   guild_id?: string;
+  channel_id?: string;
   member?: { user?: { id: string }; roles?: string[] };
   user?: { id: string };
   data?: {
@@ -176,11 +226,21 @@ function isOwner(env: Env, interaction: DiscordInteraction): boolean {
   return !!userId && !!env.OWNER_USER_ID && userId === env.OWNER_USER_ID;
 }
 
+function isMod(env: Env, interaction: DiscordInteraction): boolean {
+  return !!env.MOD_ROLE_ID && !!interaction.member?.roles?.includes(env.MOD_ROLE_ID);
+}
+
 async function handleCommand(env: Env, interaction: DiscordInteraction): Promise<Response> {
   const name = interaction.data?.name;
   const options = interaction.data?.options ?? [];
-  const getOption = (key: string): string | undefined =>
-    options.find((o) => o.name === key)?.value;
+  const getOption = (key: string): string | undefined => {
+    const v = options.find((o) => o.name === key)?.value;
+    return typeof v === "string" ? v : undefined;
+  };
+  const getIntOption = (key: string): number | undefined => {
+    const v = options.find((o) => o.name === key)?.value;
+    return typeof v === "number" ? v : undefined;
+  };
 
   switch (name) {
     case "setnickname": {
@@ -212,6 +272,13 @@ async function handleCommand(env: Env, interaction: DiscordInteraction): Promise
     case "rules": {
       if (!isOwner(env, interaction)) return ephemeralReply("Only the bot owner can use this command.");
       return handleRulesCommand(env);
+    }
+    case "clear": {
+      if (!isMod(env, interaction)) return ephemeralReply("Only mods can use this command.");
+      const channelId = interaction.channel_id;
+      if (!channelId) return ephemeralReply("Couldn't tell which channel to clear.");
+      const amount = getIntOption("amount") ?? 100;
+      return handleClear(env, channelId, amount);
     }
     default:
       return ephemeralReply("Unknown command.");
