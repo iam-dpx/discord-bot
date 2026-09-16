@@ -1,5 +1,5 @@
 import { openAddServerModal, handleAddServerSubmit, handleAddServerAutocomplete } from './addserver.js';
-import { handleApprovalButton } from './approval.js';
+import { handleApprovalButton, handleRejectModalSubmit } from './approval.js';
 import {
   handleServerlistCommand,
   handleServerlistAutocomplete,
@@ -41,6 +41,11 @@ export async function handleServerListInteraction(interaction, env, ctx) {
   // Modal submission from /addserver — custom_id is "addserver_modal|<gameName>"
   if (type === 5 && customId?.startsWith('addserver_modal')) {
     return handleAddServerSubmit(interaction, env, ctx);
+  }
+
+  // Modal submission from clicking Reject — custom_id is "reject_modal_<id>"
+  if (type === 5 && customId?.startsWith('reject_modal_')) {
+    return handleRejectModalSubmit(interaction, env, ctx);
   }
 
   // Buttons

@@ -19,6 +19,24 @@ export async function sendMessage(botToken, channelId, payload) {
   return res.json();
 }
 
+// DMing a user takes two calls: open (or fetch the existing) DM channel for
+// them, then send to that channel like any other. Wrapped in try/catch by
+// callers — DMs fail silently and often (bot blocked, DMs closed, they left
+// mutual servers), and that should never block the rest of an approval
+// action.
+export async function sendDM(botToken, userId, payload) {
+  const dmRes = await fetch(`${API}/users/@me/channels`, {
+    method: 'POST',
+    headers: authHeaders(botToken),
+    body: JSON.stringify({ recipient_id: userId }),
+  });
+  if (!dmRes.ok) {
+    throw new Error(`opening DM channel failed: ${dmRes.status} ${await dmRes.text()}`);
+  }
+  const dmChannel = await dmRes.json();
+  return sendMessage(botToken, dmChannel.id, payload);
+}
+
 export async function editMessage(botToken, channelId, messageId, payload) {
   const res = await fetch(`${API}/channels/${channelId}/messages/${messageId}`, {
     method: 'PATCH',
