@@ -24,17 +24,23 @@ Slash commands that let a server customize the bot:
   Running it again deletes the previous rules message first, so there's
   always exactly one, never a growing pile of old versions. See
   "Owner-only commands" below.
+- `/nuke` — **Owner-only.** Deletes the current channel and recreates it
+  empty with the same name, position, permissions, and topic — the only
+  way to wipe a channel's *entire* history regardless of age, since
+  Discord's bulk-delete can't touch anything older than 14 days. Always
+  shows a confirm/cancel button first; nothing happens until you tap
+  **Nuke it**. If the channel is one of `APPROVAL_CHANNEL_ID`,
+  `PUBLIC_CHANNEL_ID`, or `RULES_CHANNEL_ID`, the confirmation calls that
+  out explicitly, since the recreated channel gets a **new ID** and
+  you'd need to update `wrangler.toml` afterward. Pins and webhooks on
+  the channel are lost — there's no undo.
 - `/clear [amount]` — **Mod-role only** (checked against `MOD_ROLE_ID`,
   same role used for server-list approvals). Deletes the most recent
   `amount` messages (1-100, default 100) in the channel it's run in.
   Discord's bulk-delete endpoint can't touch messages older than 14
   days — anything older than that in the batch is skipped, and the
-  reply tells you how many. There's no single Discord API call to wipe
-  a channel's *entire* history regardless of age — the only way to do
-  that instantly is delete-and-recreate the channel (same name/settings,
-  new channel ID), which isn't implemented here since it would silently
-  break `APPROVAL_CHANNEL_ID`/`PUBLIC_CHANNEL_ID`/`RULES_CHANNEL_ID` if
-  ever run on one of those channels.
+  reply tells you how many. For a full wipe regardless of age, see
+  `/nuke` above.
 - `/addserver <game_name>` — submit a private server for a game to the
   server list (open to everyone, subject to a per-user cooldown and
   AI scam/spam screening before it reaches a mod for approval).
@@ -47,13 +53,14 @@ straight to this Worker's URL.
 
 ## Owner-only commands
 
-`/setnickname`, `/setname`, `/setavatar`, `/setdescription`, and `/rules`
-check the caller's Discord user ID against the `OWNER_USER_ID` env var in
-`wrangler.toml` — Discord's own `default_member_permissions` on the
-command is set too (as a first filter so it doesn't even show up for
-others), but the actual enforcement is the ID check in `index.ts`
-(`isOwner()`), since server permissions can be reconfigured by anyone
-with "Manage Server" while a hardcoded user ID can't.
+`/setnickname`, `/setname`, `/setavatar`, `/setdescription`, `/rules`,
+and `/nuke` check the caller's Discord user ID against the
+`OWNER_USER_ID` env var in `wrangler.toml` — Discord's own
+`default_member_permissions` on the command is set too (as a first
+filter so it doesn't even show up for others), but the actual
+enforcement is the ID check in `index.ts` (`isOwner()`), since server
+permissions can be reconfigured by anyone with "Manage Server" while a
+hardcoded user ID can't.
 
 `/rules` posts two embeds: Discord's own rules (paraphrased from
 discord.com/guidelines — not copied verbatim, since that's Discord's own
@@ -63,6 +70,19 @@ document and can change) and a separate community-rules embed that's a
 posted message's ID is remembered in D1's `bot_settings` table
 (`rules_message_id`) so re-running the command knows which old message to
 delete.
+
+`/nuke` never acts on the slash command itself — it always replies with
+a **Nuke it / Cancel** button pair first (`handleNukeButton()` in
+`index.ts` re-checks `isOwner()` on the button click too, not just the
+original command, so the confirmation can't be triggered by anyone
+else even in theory). Confirming clones the channel's name, position,
+permission overwrites, topic, and a few other settings via
+`cloneAndDeleteChannel()`, creates the replacement, deletes the
+original, then edits the confirmation message with the new channel's
+mention. If the channel matches `APPROVAL_CHANNEL_ID`,
+`PUBLIC_CHANNEL_ID`, or `RULES_CHANNEL_ID`, the confirmation prompt
+says so explicitly — update `wrangler.toml` with the new ID afterward
+if you go ahead anyway.
 
 ## One-time setup
 

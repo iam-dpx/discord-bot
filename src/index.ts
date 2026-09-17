@@ -202,6 +202,134 @@ async function handleClear(env: Env, channelId: string, amount: number): Promise
   return ephemeralReply(`Deleted ${deletable.length} message${deletable.length === 1 ? "" : "s"}.${skippedNote}`);
 }
 
+/* ---------- /nuke: delete + recreate a channel (bypasses the 14-day bulk-delete limit) ---------- */
+/* Discord has no single call to wipe a channel's full history regardless of
+   age — the only instant way is delete-and-recreate, which gives the
+   channel a NEW ID. That's destructive and irreversible (pins, webhooks,
+   and the ID itself are gone for good), so this always confirms first
+   instead of acting on the slash command directly. */
+
+function protectedChannelNames(env: Env, channelId: string): string[] {
+  const names: string[] = [];
+  if (channelId === env.APPROVAL_CHANNEL_ID) names.push("APPROVAL_CHANNEL_ID");
+  if (channelId === env.PUBLIC_CHANNEL_ID) names.push("PUBLIC_CHANNEL_ID");
+  if (channelId === env.RULES_CHANNEL_ID) names.push("RULES_CHANNEL_ID");
+  return names;
+}
+
+function buildNukeConfirmation(env: Env, channelId: string): Response {
+  const protectedNames = protectedChannelNames(env, channelId);
+  const warning = protectedNames.length
+    ? `\n\n⚠️ This channel is set as **${protectedNames.join(", ")}** in \`wrangler.toml\` — nuking it changes its ID, which will break that config until you update it.`
+    : "";
+
+  return jsonResponse({
+    type: 4, // CHANNEL_MESSAGE_WITH_SOURCE (ephemeral)
+    data: {
+      content:
+        `This deletes <#${channelId}> and recreates it empty with the same name and settings. ` +
+        `Every message, pin, and webhook tied to it is gone for good — there's no undo.${warning}\n\nAre you sure?`,
+      flags: EPHEMERAL,
+      components: [
+        {
+          type: 1,
+          components: [
+            { type: 2, style: 4, label: "Nuke it", custom_id: `nuke_confirm_${channelId}` }, // style 4 = danger (red)
+            { type: 2, style: 2, label: "Cancel", custom_id: `nuke_cancel_${channelId}` }, // style 2 = secondary (grey)
+          ],
+        },
+      ],
+    },
+  });
+}
+
+async function editOriginalResponse(env: Env, interactionToken: string, body: unknown): Promise<void> {
+  const res = await discordApi(env, `/webhooks/${env.DISCORD_APPLICATION_ID}/${interactionToken}/messages/@original`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    console.error(`Failed to edit the nuke confirmation message: ${res.status} ${await res.text()}`);
+  }
+}
+
+async function cloneAndDeleteChannel(env: Env, channelId: string): Promise<{ oldName: string; newChannelId: string }> {
+  const getRes = await discordApi(env, `/channels/${channelId}`, { method: "GET" });
+  if (!getRes.ok) {
+    throw new Error(`fetching channel failed: ${getRes.status} ${await getRes.text()}`);
+  }
+  const channel = (await getRes.json()) as Record<string, unknown> & { id: string; guild_id: string; name: string };
+
+  // Carry over everything that matters for how the channel looks/behaves.
+  // Only include fields that were actually present — sending explicit
+  // `undefined`/nulls for things like bitrate on a text channel can trip
+  // up channel creation.
+  const createBody: Record<string, unknown> = {
+    name: channel.name,
+    type: channel.type,
+    position: channel.position,
+    permission_overwrites: channel.permission_overwrites,
+  };
+  for (const field of ["topic", "nsfw", "parent_id", "rate_limit_per_user", "bitrate", "user_limit"] as const) {
+    if (channel[field] !== undefined) createBody[field] = channel[field];
+  }
+
+  const createRes = await discordApi(env, `/guilds/${channel.guild_id}/channels`, {
+    method: "POST",
+    body: JSON.stringify(createBody),
+  });
+  if (!createRes.ok) {
+    throw new Error(`creating replacement channel failed: ${createRes.status} ${await createRes.text()}`);
+  }
+  const newChannel = (await createRes.json()) as { id: string };
+
+  const deleteRes = await discordApi(env, `/channels/${channelId}`, { method: "DELETE" });
+  if (!deleteRes.ok) {
+    // The replacement already exists at this point, so don't throw here —
+    // just log it. Worst case there are briefly two channels instead of one.
+    console.error(`Created the replacement but failed to delete the old channel ${channelId}: ${deleteRes.status} ${await deleteRes.text()}`);
+  }
+
+  return { oldName: channel.name, newChannelId: newChannel.id };
+}
+
+async function handleNukeButton(env: Env, ctx: ExecutionContext, interaction: DiscordInteraction): Promise<Response> {
+  if (!isOwner(env, interaction)) return ephemeralReply("Only the bot owner can use this command.");
+
+  const match = (interaction.data?.custom_id ?? "").match(/^nuke_(confirm|cancel)_(\d+)$/);
+  if (!match) return ephemeralReply("Something went wrong reading that button.");
+  const [, action, channelId] = match;
+
+  if (action === "cancel") {
+    return jsonResponse({
+      type: 7, // UPDATE_MESSAGE
+      data: { content: "Cancelled — nothing was deleted.", components: [] },
+    });
+  }
+
+  const token = interaction.token;
+  if (token) {
+    ctx.waitUntil(
+      cloneAndDeleteChannel(env, channelId)
+        .then(({ oldName, newChannelId }) =>
+          editOriginalResponse(env, token, {
+            content: `Done — **#${oldName}** was recreated as <#${newChannelId}>.`,
+            components: [],
+          })
+        )
+        .catch((err) => {
+          console.error(`Nuke failed for channel ${channelId}:`, err.stack || err.message || err);
+          return editOriginalResponse(env, token, {
+            content: `Nuke failed: ${err.message || err}`,
+            components: [],
+          });
+        })
+    );
+  }
+
+  return jsonResponse({ type: 6 }); // DEFERRED_UPDATE_MESSAGE — the edit above lands once the clone/delete finishes
+}
+
 /* ---------- interaction routing ---------- */
 
 interface DiscordOption {
@@ -213,11 +341,13 @@ interface DiscordInteraction {
   type: number;
   guild_id?: string;
   channel_id?: string;
+  token?: string;
   member?: { user?: { id: string }; roles?: string[] };
   user?: { id: string };
   data?: {
     name?: string;
     options?: DiscordOption[];
+    custom_id?: string;
   };
 }
 
@@ -279,6 +409,12 @@ async function handleCommand(env: Env, interaction: DiscordInteraction): Promise
       if (!channelId) return ephemeralReply("Couldn't tell which channel to clear.");
       const amount = getIntOption("amount") ?? 100;
       return handleClear(env, channelId, amount);
+    }
+    case "nuke": {
+      if (!isOwner(env, interaction)) return ephemeralReply("Only the bot owner can use this command.");
+      const channelId = interaction.channel_id;
+      if (!channelId) return ephemeralReply("Couldn't tell which channel to nuke.");
+      return buildNukeConfirmation(env, channelId);
     }
     default:
       return ephemeralReply("Unknown command.");
@@ -377,6 +513,10 @@ export default {
 
     if (interaction.type === InteractionType.APPLICATION_COMMAND) {
       return handleCommand(env, interaction);
+    }
+
+    if (interaction.type === InteractionType.MESSAGE_COMPONENT && interaction.data?.custom_id?.startsWith("nuke_")) {
+      return handleNukeButton(env, ctx, interaction);
     }
 
     return jsonResponse({

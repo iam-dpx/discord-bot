@@ -87,6 +87,11 @@ const commands = [
     ],
   },
   {
+    name: "nuke",
+    description: "Delete and recreate this channel, wiping its entire history — owner only",
+    default_member_permissions: "8",
+  },
+  {
     name: "rules",
     description: "Post (or refresh) the community rules in the rules channel — owner only",
     default_member_permissions: "8",
