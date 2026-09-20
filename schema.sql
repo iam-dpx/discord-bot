@@ -106,3 +106,67 @@ INSERT OR IGNORE INTO known_games (name) VALUES
   ('Lost Ark'),
   ('Black Desert Online'),
   ('Undawn');
+
+-- ===== Idle Miner game feature =====
+CREATE TABLE IF NOT EXISTS players (
+  guild_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  coins INTEGER NOT NULL DEFAULT 0,
+  gems INTEGER NOT NULL DEFAULT 0,
+  shards INTEGER NOT NULL DEFAULT 0,
+  prestige_tokens INTEGER NOT NULL DEFAULT 0,
+  pickaxe_tier INTEGER NOT NULL DEFAULT 0,
+  backpack_tier INTEGER NOT NULL DEFAULT 0,
+  backpack_blocks INTEGER NOT NULL DEFAULT 0,
+  total_blocks_mined INTEGER NOT NULL DEFAULT 0,
+  level INTEGER NOT NULL DEFAULT 1,
+  rebirths INTEGER NOT NULL DEFAULT 0,
+  prestiges INTEGER NOT NULL DEFAULT 0,
+  last_collected_at INTEGER NOT NULL DEFAULT 0,
+  last_daily_at INTEGER NOT NULL DEFAULT 0,
+  last_weekly_at INTEGER NOT NULL DEFAULT 0,
+  last_monthly_at INTEGER NOT NULL DEFAULT 0,
+  last_hunt_at INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (guild_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS player_pets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  guild_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  pet_key TEXT NOT NULL,
+  level INTEGER NOT NULL DEFAULT 1,
+  obtained_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_player_pets_owner ON player_pets (guild_id, user_id);
+
+CREATE TABLE IF NOT EXISTS player_boosters (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  guild_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  booster_type TEXT NOT NULL,
+  multiplier REAL NOT NULL,
+  expires_at INTEGER NOT NULL,
+  source TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_player_boosters_owner ON player_boosters (guild_id, user_id, expires_at);
+
+CREATE TABLE IF NOT EXISTS global_boosters (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  guild_id TEXT NOT NULL,
+  multiplier REAL NOT NULL,
+  expires_at INTEGER NOT NULL,
+  label TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_global_boosters_guild ON global_boosters (guild_id, expires_at);
+
+CREATE TABLE IF NOT EXISTS player_crates (
+  guild_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  crate_type TEXT NOT NULL,
+  quantity INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (guild_id, user_id, crate_type)
+);

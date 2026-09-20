@@ -122,6 +122,102 @@ const commands = [
       },
     ],
   },
+  {
+    name: "mine",
+    description: "Idle Miner game",
+    options: [
+      { name: "check", description: "Check your current mining progress", type: 1 },
+      { name: "sell", description: "Sell your mined blocks for coins", type: 1 },
+      { name: "profile", description: "View your miner profile", type: 1 },
+      { name: "rebirth", description: "Rebirth for permanent bonuses (requires max gear + level 50)", type: 1 },
+      {
+        name: "coinflip",
+        description: "Bet coins on a coin flip",
+        type: 1,
+        options: [
+          { name: "amount", description: "Coins to bet", type: 4, required: true, min_value: 1 },
+          {
+            name: "side",
+            description: "Pick a side",
+            type: 3,
+            required: true,
+            choices: [
+              { name: "Heads", value: "heads" },
+              { name: "Tails", value: "tails" },
+            ],
+          },
+        ],
+      },
+      {
+        name: "slots",
+        description: "Bet coins on the slots",
+        type: 1,
+        options: [{ name: "amount", description: "Coins to bet", type: 4, required: true, min_value: 1 }],
+      },
+      { name: "daily", description: "Claim your daily reward", type: 1 },
+      { name: "weekly", description: "Claim your weekly reward", type: 1 },
+      { name: "monthly", description: "Claim your monthly reward", type: 1 },
+      {
+        name: "upgrade",
+        description: "Upgrade your gear",
+        type: 2, // SUB_COMMAND_GROUP
+        options: [
+          { name: "pickaxe", description: "Upgrade your pickaxe to the next tier", type: 1 },
+          { name: "backpack", description: "Upgrade your backpack to the next tier", type: 1 },
+        ],
+      },
+      {
+        name: "pet",
+        description: "Pet system",
+        type: 2, // SUB_COMMAND_GROUP
+        options: [
+          { name: "hunt", description: "Go hunting for a pet", type: 1 },
+          { name: "list", description: "See all available pets", type: 1 },
+          {
+            name: "upgrade",
+            description: "Level up one of your pets using shards",
+            type: 1,
+            options: [
+              {
+                name: "pet",
+                description: "Which pet to level up",
+                type: 3,
+                required: true,
+                choices: [
+                  { name: "Mole", value: "mole" },
+                  { name: "Bat", value: "bat" },
+                  { name: "Owl", value: "owl" },
+                  { name: "Slime", value: "slime" },
+                  { name: "Golem", value: "golem" },
+                  { name: "Crystal Fox", value: "crystalfox" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      {
+        name: "globalboost",
+        description: "[Owner] Start a server-wide income booster",
+        type: 1,
+        options: [
+          { name: "multiplier", description: "e.g. 2 for 2x income", type: 10, required: true },
+          { name: "minutes", description: "Duration in minutes", type: 4, required: true },
+          { name: "label", description: "What to call this event", type: 3, required: false },
+        ],
+      },
+      {
+        name: "gmboost",
+        description: "[Owner] Gift a booster to one player",
+        type: 1,
+        options: [
+          { name: "user", description: "Who to gift", type: 6, required: true },
+          { name: "multiplier", description: "e.g. 2 for 2x income", type: 10, required: true },
+          { name: "minutes", description: "Duration in minutes", type: 4, required: true },
+        ],
+      },
+    ],
+  },
 ];
 
 const res = await fetch(`https://discord.com/api/v10/applications/${appId}/commands`, {

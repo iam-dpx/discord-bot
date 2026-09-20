@@ -17,6 +17,7 @@ import {
 import { handleServerListInteraction } from "./serverlist/index.js";
 import { discordApi, ephemeralReply, jsonResponse } from "./shared";
 import { handleRulesCommand } from "./rules";
+import { handleMineCommand } from "./commands/mine";
 
 export interface Env {
   DISCORD_PUBLIC_KEY: string;
@@ -415,6 +416,14 @@ async function handleCommand(env: Env, interaction: DiscordInteraction): Promise
       const channelId = interaction.channel_id;
       if (!channelId) return ephemeralReply("Couldn't tell which channel to nuke.");
       return buildNukeConfirmation(env, channelId);
+    }
+    case "mine": {
+      // /mine has subcommands (check/sell/profile/...) and subcommand groups
+      // (upgrade/pet), which carry richer option data than the flat
+      // DiscordOption[] shape used elsewhere in this file — handleMineCommand
+      // reads the raw interaction itself instead of going through getOption().
+      const result = await handleMineCommand(interaction, env);
+      return jsonResponse(result);
     }
     default:
       return ephemeralReply("Unknown command.");
