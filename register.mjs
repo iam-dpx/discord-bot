@@ -124,95 +124,97 @@ const commands = [
   },
   {
     name: "mine",
-    description: "Idle Miner game",
+    description: "Try to mine for a bonus reward (one of 3 buttons is a hidden critical hit!)",
+  },
+  { name: "sell", description: "Check on your mined materials" },
+  { name: "profile", description: "View your miner profile" },
+  { name: "prestige", description: "Prestige for permanent bonuses (resets progress, raises max upgrade slots)" },
+  { name: "leaderboard", description: "See the top players by balance" },
+  {
+    name: "coinflip",
+    description: "Bet coins on a coin flip",
     options: [
-      { name: "check", description: "Check your current mining progress", type: 1 },
-      { name: "sell", description: "Sell your mined blocks for coins", type: 1 },
-      { name: "profile", description: "View your miner profile", type: 1 },
-      { name: "rebirth", description: "Rebirth for permanent bonuses (requires max gear + level 50)", type: 1 },
+      { name: "amount", description: "Coins to bet", type: 4, required: true, min_value: 1 },
       {
-        name: "coinflip",
-        description: "Bet coins on a coin flip",
-        type: 1,
-        options: [
-          { name: "amount", description: "Coins to bet", type: 4, required: true, min_value: 1 },
-          {
-            name: "side",
-            description: "Pick a side",
-            type: 3,
-            required: true,
-            choices: [
-              { name: "Heads", value: "heads" },
-              { name: "Tails", value: "tails" },
-            ],
-          },
+        name: "side",
+        description: "Pick a side",
+        type: 3,
+        required: true,
+        choices: [
+          { name: "Heads", value: "heads" },
+          { name: "Tails", value: "tails" },
         ],
       },
+    ],
+  },
+  {
+    name: "slots",
+    description: "Bet coins on the slots",
+    options: [{ name: "amount", description: "Coins to bet", type: 4, required: true, min_value: 1 }],
+  },
+  { name: "daily", description: "Claim your daily reward" },
+  { name: "weekly", description: "Claim your weekly reward" },
+  { name: "monthly", description: "Claim your monthly reward" },
+  {
+    name: "upgrade",
+    description: "Upgrade your gear",
+    options: [
       {
-        name: "slots",
-        description: "Bet coins on the slots",
-        type: 1,
-        options: [{ name: "amount", description: "Coins to bet", type: 4, required: true, min_value: 1 }],
-      },
-      { name: "daily", description: "Claim your daily reward", type: 1 },
-      { name: "weekly", description: "Claim your weekly reward", type: 1 },
-      { name: "monthly", description: "Claim your monthly reward", type: 1 },
-      {
-        name: "upgrade",
-        description: "Upgrade your gear",
-        type: 2, // SUB_COMMAND_GROUP
-        options: [
-          { name: "pickaxe", description: "Upgrade your pickaxe to the next tier", type: 1 },
-          { name: "backpack", description: "Upgrade your backpack to the next tier", type: 1 },
+        name: "type",
+        description: "Which gear to upgrade",
+        type: 3,
+        required: true,
+        choices: [
+          { name: "Size", value: "size" },
+          { name: "Miner", value: "miner" },
+          { name: "Workers", value: "workers" },
         ],
       },
+    ],
+  },
+  { name: "pethunt", description: "Go hunting for a pet" },
+  { name: "petlist", description: "See all available pets" },
+  {
+    name: "petupgrade",
+    description: "Level up one of your pets using shards",
+    options: [
       {
         name: "pet",
-        description: "Pet system",
-        type: 2, // SUB_COMMAND_GROUP
-        options: [
-          { name: "hunt", description: "Go hunting for a pet", type: 1 },
-          { name: "list", description: "See all available pets", type: 1 },
-          {
-            name: "upgrade",
-            description: "Level up one of your pets using shards",
-            type: 1,
-            options: [
-              {
-                name: "pet",
-                description: "Which pet to level up",
-                type: 3,
-                required: true,
-                choices: [
-                  { name: "Mole", value: "mole" },
-                  { name: "Bat", value: "bat" },
-                  { name: "Owl", value: "owl" },
-                  { name: "Slime", value: "slime" },
-                  { name: "Golem", value: "golem" },
-                  { name: "Crystal Fox", value: "crystalfox" },
-                ],
-              },
-            ],
-          },
+        description: "Which pet to level up",
+        type: 3,
+        required: true,
+        choices: [
+          { name: "Mole", value: "mole" },
+          { name: "Bat", value: "bat" },
+          { name: "Owl", value: "owl" },
+          { name: "Slime", value: "slime" },
+          { name: "Golem", value: "golem" },
+          { name: "Crystal Fox", value: "crystalfox" },
         ],
       },
+    ],
+  },
+  {
+    name: "admin",
+    description: "[Game Master] Idle Miner admin actions",
+    options: [
       {
-        name: "globalboost",
-        description: "[Owner] Start a server-wide income booster",
-        type: 1,
-        options: [
-          { name: "multiplier", description: "e.g. 2 for 2x income", type: 10, required: true },
-          { name: "minutes", description: "Duration in minutes", type: 4, required: true },
-          { name: "label", description: "What to call this event", type: 3, required: false },
+        name: "action",
+        description: "What do you want to do?",
+        type: 3,
+        required: true,
+        choices: [
+          { name: "Start global booster (server-wide)", value: "globalboost" },
+          { name: "Gift a booster to one player", value: "gmboost" },
         ],
       },
-      {
-        name: "gmboost",
-        description: "[Owner] Gift a booster to one player",
-        type: 1,
-        options: [
-          { name: "user", description: "Who to gift", type: 6, required: true },
-          { name: "multiplier", description: "e.g. 2 for 2x income", type: 10, required: true },
+      { name: "user", description: "Target player (for Gift a booster)", type: 6, required: false },
+      { name: "multiplier", description: "e.g. 2 for 2x income", type: 10, required: false },
+      { name: "minutes", description: "Duration in minutes", type: 4, required: false },
+      { name: "label", description: "What to call this event (global booster only)", type: 3, required: false },
+    ],
+  },
+];
           { name: "minutes", description: "Duration in minutes", type: 4, required: true },
         ],
       },

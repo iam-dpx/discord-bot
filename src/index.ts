@@ -17,7 +17,7 @@ import {
 import { handleServerListInteraction } from "./serverlist/index.js";
 import { discordApi, ephemeralReply, jsonResponse } from "./shared";
 import { handleRulesCommand } from "./rules";
-import { handleMineCommand } from "./commands/mine";
+import { handleGameCommand, handleMineButtonClick } from "./commands/mine";
 
 export interface Env {
   DISCORD_PUBLIC_KEY: string;
@@ -417,12 +417,25 @@ async function handleCommand(env: Env, interaction: DiscordInteraction): Promise
       if (!channelId) return ephemeralReply("Couldn't tell which channel to nuke.");
       return buildNukeConfirmation(env, channelId);
     }
-    case "mine": {
-      // /mine has subcommands (check/sell/profile/...) and subcommand groups
-      // (upgrade/pet), which carry richer option data than the flat
-      // DiscordOption[] shape used elsewhere in this file — handleMineCommand
-      // reads the raw interaction itself instead of going through getOption().
-      const result = await handleMineCommand(interaction, env);
+    case "mine":
+    case "sell":
+    case "profile":
+    case "prestige":
+    case "leaderboard":
+    case "coinflip":
+    case "slots":
+    case "daily":
+    case "weekly":
+    case "monthly":
+    case "upgrade":
+    case "pethunt":
+    case "petlist":
+    case "petupgrade":
+    case "admin": {
+      // All idle-miner game commands share one dispatcher, which reads
+      // interaction.data.options itself (flat, same shape as every other
+      // command here) rather than going through getOption() above.
+      const result = await handleGameCommand(interaction, env);
       return jsonResponse(result);
     }
     default:
@@ -526,6 +539,11 @@ export default {
 
     if (interaction.type === InteractionType.MESSAGE_COMPONENT && interaction.data?.custom_id?.startsWith("nuke_")) {
       return handleNukeButton(env, ctx, interaction);
+    }
+
+    if (interaction.type === InteractionType.MESSAGE_COMPONENT && interaction.data?.custom_id?.startsWith("mine_")) {
+      const result = await handleMineButtonClick(interaction, env);
+      return jsonResponse(result);
     }
 
     return jsonResponse({

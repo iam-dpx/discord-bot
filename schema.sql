@@ -170,3 +170,24 @@ CREATE TABLE IF NOT EXISTS player_crates (
   quantity INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (guild_id, user_id, crate_type)
 );
+
+-- ===== Idle Miner v2: passive income model + mine minigame =====
+-- Renamed concepts (backpack_blocks -> materials, total_blocks_mined -> xp)
+-- and a new cooldown column for the /mine minigame. ALTER TABLE ADD COLUMN
+-- is safe to re-run only once per column — if you already applied this,
+-- skip re-running this block (D1/SQLite has no IF NOT EXISTS for columns).
+ALTER TABLE players ADD COLUMN materials INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE players ADD COLUMN xp INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE players ADD COLUMN last_mine_click_at INTEGER NOT NULL DEFAULT 0;
+-- Old columns (backpack_blocks, total_blocks_mined) are left in place,
+-- unused, rather than dropped — SQLite ALTER TABLE DROP COLUMN support in
+-- D1 is limited, and leaving them costs nothing.
+
+-- ===== Idle Miner v3: real Size/Miner/Workers upgrade model =====
+CREATE TABLE IF NOT EXISTS player_upgrades (
+  guild_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  upgrade_key TEXT NOT NULL,   -- 'size' | 'miner' | 'workers'
+  count INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (guild_id, user_id, upgrade_key)
+);

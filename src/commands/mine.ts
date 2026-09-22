@@ -1,5 +1,7 @@
-// Handler for the /mine command tree. Call handleMineCommand(interaction, env)
-// from your existing interaction router when interaction.data.name === "mine".
+// Handler for the flattened game commands (/mine /sell /profile /rebirth
+// /coinflip /slots /daily /weekly /monthly /upgrade /pethunt /petlist
+// /petupgrade /admin). Call handleGameCommand(interaction, env) from your
+// existing interaction router.
 //
 // NOTE: adjust `env.DB` below if your D1 binding has a different name
 // (check wrangler.toml [[d1_databases]] "binding" value).
@@ -7,29 +9,33 @@
 // of the bot's owner-only commands (setname/setavatar/nuke/rules).
 
 import {
-  PICKAXE_TIERS,
-  BACKPACK_TIERS,
+  UPGRADE_TYPES,
   PETS,
+  ORES,
   HUNT_PET_CHANCE,
   HUNT_SHARD_REWARD,
   SHARDS_PER_PET_LEVEL,
   COOLDOWNS_MS,
-  CRATE_TYPES,
+  MINE_COOLDOWN_MS,
   icon,
 } from "../game/data";
 import {
   getOrCreatePlayer,
   savePlayer,
-  accrueIdleBlocks,
-  sellBackpack,
+  accruePassiveIncome,
+  effectiveIncomePerMinute,
+  getUpgradeCounts,
+  maxUpgradeSlots,
+  nextUpgradeCost,
+  buyUpgrade,
   getOwnedPets,
-  nextPickaxeUpgrade,
-  nextBackpackUpgrade,
-  canRebirth,
-  applyRebirth,
-  backpackCapacity,
-  pickaxeBlocksPerMinute,
+  canPrestige,
+  applyPrestige,
+  PRESTIGE_MIN_BALANCE,
+  rollMinePreview,
+  applyMineClick,
   Player,
+  MinePreview,
 } from "../game/economy";
 
 const COLOR = 0x2ecc71;
@@ -53,44 +59,48 @@ function simpleEmbed(title: string, description: string, opts: { thumbnail?: str
 
 // Walks interaction options to find the deepest subcommand name + its options,
 // handling both plain subcommands and one level of subcommand group.
-function resolveSub(interaction: any) {
-  const opts = interaction.data.options ?? [];
-  if (opts.length === 0) return { name: "", options: [] };
-  const first = opts[0];
-  if (first.type === 2) {
-    // SUB_COMMAND_GROUP -> next level is the actual subcommand
-    const inner = first.options?.[0];
-    return { group: first.name, name: inner?.name ?? "", options: inner?.options ?? [] };
-  }
-  return { group: undefined, name: first.name, options: first.options ?? [] };
-}
-
+// Still used internally for the "pet" trio, kept as top-level commands now
+// but sharing this same simple options-array reader.
 function optVal(options: any[], name: string) {
   return options.find((o) => o.name === name)?.value;
 }
 
-export async function handleMineCommand(interaction: any, env: { DB: any; OWNER_USER_ID: string }) {
+// Flat top-level commands: /mine /sell /profile /rebirth /coinflip /slots
+// /daily /weekly /monthly /upgrade /pethunt /petlist /petupgrade /admin
+export async function handleGameCommand(interaction: any, env: { DB: any; OWNER_USER_ID: string }) {
   const db = env.DB;
   const guildId = interaction.guild_id;
   const userId = interaction.member?.user?.id ?? interaction.user?.id;
-  const sub = resolveSub(interaction);
+  const name = interaction.data?.name;
+  const options = interaction.data?.options ?? [];
+
+  // /admin doesn't need a player row loaded — it acts on the guild or a
+  // target user, not the caller's own progress.
+  if (name === "admin") {
+    const action = optVal(options, "action");
+    if (action === "globalboost") return handleGlobalBoost(interaction, db, options, env.OWNER_USER_ID);
+    if (action === "gmboost") return handleGmBoost(interaction, db, options, env.OWNER_USER_ID);
+    return simpleEmbed("Unknown admin action", "Pick a valid action from the dropdown.", { color: COLOR_WARN });
+  }
 
   let player = await getOrCreatePlayer(db, guildId, userId);
-  player = await accrueIdleBlocks(db, player);
+  player = await accruePassiveIncome(db, player);
 
-  switch (sub.group ?? sub.name) {
-    case "check":
+  switch (name) {
+    case "mine":
       return handleCheck(player, db);
     case "sell":
       return handleSell(player, db);
     case "profile":
       return handleProfile(player, db);
-    case "rebirth":
-      return handleRebirth(player, db);
+    case "prestige":
+      return handlePrestige(player, db);
+    case "leaderboard":
+      return handleLeaderboard(player, db);
     case "coinflip":
-      return handleCoinflip(player, db, sub.options);
+      return handleCoinflip(player, db, options);
     case "slots":
-      return handleSlots(player, db, sub.options);
+      return handleSlots(player, db, options);
     case "daily":
       return handleClaim(player, db, "daily");
     case "weekly":
@@ -98,46 +108,76 @@ export async function handleMineCommand(interaction: any, env: { DB: any; OWNER_
     case "monthly":
       return handleClaim(player, db, "monthly");
     case "upgrade":
-      return handleUpgrade(player, db, sub.name, sub.options);
-    case "pet":
-      return handlePet(player, db, sub.name, sub.options);
-    case "globalboost":
-      return handleGlobalBoost(interaction, db, sub.options, env.OWNER_USER_ID);
-    case "gmboost":
-      return handleGmBoost(interaction, db, sub.options, env.OWNER_USER_ID);
+      return handleUpgrade(player, db, optVal(options, "type"), options);
+    case "pethunt":
+      return handlePet(player, db, "hunt", options);
+    case "petlist":
+      return handlePet(player, db, "list", options);
+    case "petupgrade":
+      return handlePet(player, db, "upgrade", options);
     default:
       await savePlayer(db, player);
-      return simpleEmbed("Unknown subcommand", "That /mine subcommand isn't wired up yet.", { color: COLOR_WARN });
+      return simpleEmbed("Unknown command", "That command isn't wired up yet.", { color: COLOR_WARN });
   }
 }
 
 // ------------------------------------------------------------ CORE LOOP ---
+// Encodes the mine-round state directly in each button's custom_id, since
+// slash-command -> button-click are two separate stateless interactions and
+// this avoids needing a session table (same pattern this repo already uses
+// for nuke_confirm_<channelId>).
+function buildMineButtons(guildId: string, userId: string, preview: MinePreview) {
+  const payload = `${guildId}_${userId}_${preview.critIndex}_${preview.cash}_${preview.xp}_${preview.material}_${preview.oreKey}`;
+  return [
+    { type: 1, components: [0, 1, 2].map((i) => ({
+      type: 2,
+      style: 1, // blurple; the actual crit button looks identical until clicked, matching the real bot's random "which one is green" surprise
+      label: "Mine",
+      custom_id: `mine_${i}_${payload}`,
+    })) },
+  ];
+}
+
 async function handleCheck(p: Player, db: any) {
+  const now = Date.now();
+  const sinceLast = now - p.last_mine_click_at;
+
+  if (sinceLast < MINE_COOLDOWN_MS) {
+    await savePlayer(db, p);
+    const secs = Math.ceil((MINE_COOLDOWN_MS - sinceLast) / 1000);
+    const rate = await effectiveIncomePerMinute(db, p);
+    return simpleEmbed(
+      "Still cooling down",
+      `You can mine again in **${secs}s**.\nMeanwhile, you're earning **${Math.floor(rate)}/min** passively — balance: **${p.coins}**.`,
+      { color: COLOR_WARN }
+    );
+  }
+
   await savePlayer(db, p);
-  const capacity = backpackCapacity(p.backpack_tier);
-  const rate = pickaxeBlocksPerMinute(p.pickaxe_tier);
-  const pct = Math.min(100, Math.floor((p.backpack_blocks / capacity) * 100));
-  return simpleEmbed(
-    "Mining Report",
-    `You've mined **${p.backpack_blocks}/${capacity}** blocks (${pct}% full).\n` +
-      `Mining rate: **${rate} blocks/min**.\n` +
-      (pct >= 100 ? "\nBackpack full — sell soon or you'll stop gaining blocks!" : "\nUse `/mine sell` to convert blocks into coins."),
-    { thumbnail: icon(`backpack_${BACKPACK_TIERS[p.backpack_tier].key}`) }
-  );
+  const preview = rollMinePreview(p);
+  return {
+    type: 4,
+    data: {
+      embeds: [
+        {
+          title: "Mine",
+          description: "Click a Mine button — one of them is a hidden critical hit worth 2x!",
+          color: COLOR,
+          thumbnail: { url: icon(`ore_${preview.oreKey}`) },
+        },
+      ],
+      components: buildMineButtons(p.guild_id, p.user_id, preview),
+    },
+  };
 }
 
 async function handleSell(p: Player, db: any) {
-  const { coinsEarned, blocksSold } = await sellBackpack(db, p);
   await savePlayer(db, p);
-  if (blocksSold === 0) {
-    return simpleEmbed("Nothing to sell", "Your backpack is empty — check back later or use `/mine check`.", {
-      color: COLOR_WARN,
-    });
-  }
   return simpleEmbed(
-    "Sold!",
-    `Sold **${blocksSold}** blocks for **${coinsEarned}** coins.\nBalance: **${p.coins}** coins.`,
-    { thumbnail: icon("coin") }
+    "Materials aren't sold directly",
+    `You have **${p.materials}** materials banked from mining — these will feed into crafting/corporation features later. ` +
+      `Your coin balance grows automatically from your $/min income — check \`/profile\`.`,
+    { thumbnail: icon("shard") }
   );
 }
 
@@ -146,23 +186,31 @@ async function handleProfile(p: Player, db: any) {
   const pets = await getOwnedPets(db, p.guild_id, p.user_id);
   const petList = pets.length
     ? pets.map((o) => `${PETS.find((d) => d.key === o.pet_key)?.label ?? o.pet_key} (Lv.${o.level})`).join(", ")
-    : "None yet — try `/mine pet hunt`";
+    : "None yet — try `/pethunt`";
+  const rate = await effectiveIncomePerMinute(db, p);
+  const factoryAgeDays = Math.floor((Date.now() - p.created_at) / 86400000);
 
+  // Field order matches the real bot's /profile exactly: Factory Name,
+  // Location, Corporation, Balance, Income/min, Prestige, Level, Factory Age.
+  // Location/Corporation are placeholders until those systems are built.
   return reply({
     embeds: [
       {
         title: "Miner Profile",
         color: COLOR,
-        thumbnail: { url: icon(`pickaxe_${PICKAXE_TIERS[p.pickaxe_tier].key}`) },
+        thumbnail: { url: icon("factory_icon") },
         fields: [
+          { name: "Factory Name", value: `${p.user_id}'s Factory`, inline: true },
+          { name: "Location", value: "Garage", inline: true },
+          { name: "Corporation", value: "None", inline: true },
+          { name: "Balance", value: `$${p.coins}`, inline: true },
+          { name: "Income (per minute)", value: `$${Math.floor(rate)}`, inline: true },
+          { name: "Prestige", value: `${p.prestige}`, inline: true },
           { name: "Level", value: `${p.level}`, inline: true },
-          { name: "Coins", value: `${p.coins}`, inline: true },
+          { name: "Factory Age", value: `${factoryAgeDays} Days`, inline: true },
           { name: "Gems", value: `${p.gems}`, inline: true },
           { name: "Shards", value: `${p.shards}`, inline: true },
-          { name: "Rebirths", value: `${p.rebirths}`, inline: true },
-          { name: "Prestiges", value: `${p.prestiges}`, inline: true },
-          { name: "Pickaxe", value: PICKAXE_TIERS[p.pickaxe_tier].label, inline: true },
-          { name: "Backpack", value: BACKPACK_TIERS[p.backpack_tier].label, inline: true },
+          { name: "Materials", value: `${p.materials}`, inline: true },
           { name: "Pets", value: petList, inline: false },
         ],
       },
@@ -172,26 +220,22 @@ async function handleProfile(p: Player, db: any) {
 
 // -------------------------------------------------------------- UPGRADE ---
 async function handleUpgrade(p: Player, db: any, kind: string, options: any[]) {
-  if (kind === "pickaxe") {
-    const next = nextPickaxeUpgrade(p);
-    if (!next) return simpleEmbed("Maxed out", "Your pickaxe is already Netherite tier — the best there is (until you rebirth).", { color: COLOR_WARN });
-    if (p.coins < next.cost) return simpleEmbed("Not enough coins", `You need **${next.cost}** coins for the ${next.label}. You have **${p.coins}**.`, { color: COLOR_WARN });
-    p.coins -= next.cost;
-    p.pickaxe_tier += 1;
+  const def = UPGRADE_TYPES.find((u) => u.key === kind);
+  if (!def) {
     await savePlayer(db, p);
-    return simpleEmbed("Pickaxe upgraded!", `You now have the **${next.label}** (${next.value} blocks/min).`, { thumbnail: icon(`pickaxe_${next.key}`) });
+    return simpleEmbed("Unknown upgrade", "Use `/upgrade type:size`, `type:miner`, or `type:workers`.", { color: COLOR_WARN });
   }
-  if (kind === "backpack") {
-    const next = nextBackpackUpgrade(p);
-    if (!next) return simpleEmbed("Maxed out", "Your backpack is already Netherite tier — the best there is (until you rebirth).", { color: COLOR_WARN });
-    if (p.coins < next.cost) return simpleEmbed("Not enough coins", `You need **${next.cost}** coins for the ${next.label}. You have **${p.coins}**.`, { color: COLOR_WARN });
-    p.coins -= next.cost;
-    p.backpack_tier += 1;
-    await savePlayer(db, p);
-    return simpleEmbed("Backpack upgraded!", `You now have the **${next.label}** (holds ${next.value} blocks).`, { thumbnail: icon(`backpack_${next.key}`) });
-  }
+
+  const result = await buyUpgrade(db, p, kind);
   await savePlayer(db, p);
-  return simpleEmbed("Unknown upgrade", "Use `/mine upgrade pickaxe` or `/mine upgrade backpack`.", { color: COLOR_WARN });
+  if (!result.ok) {
+    return simpleEmbed("Can't upgrade", result.reason ?? "Something went wrong.", { color: COLOR_WARN });
+  }
+  return simpleEmbed(
+    `${def.label} upgraded!`,
+    `Cost: $${result.cost}. +$${def.profitPerMin}/min income.`,
+    { thumbnail: def.icon }
+  );
 }
 
 // ------------------------------------------------------------------ PETS ---
@@ -226,7 +270,7 @@ async function handlePet(p: Player, db: any, action: string, options: any[]) {
         .bind(p.guild_id, p.user_id, chosen.key, now)
         .run();
       await savePlayer(db, p);
-      return simpleEmbed("New pet!", `You found a **${chosen.label}**! Check \`/mine profile\` to see it.`, { thumbnail: chosen.icon });
+      return simpleEmbed("New pet!", `You found a **${chosen.label}**! Check \`/profile\` to see it.`, { thumbnail: chosen.icon });
     } else {
       p.shards += HUNT_SHARD_REWARD;
       await savePlayer(db, p);
@@ -254,7 +298,7 @@ async function handlePet(p: Player, db: any, action: string, options: any[]) {
   if (action === "upgrade") {
     const petKey = optVal(options, "pet");
     const def = PETS.find((x) => x.key === petKey);
-    if (!def) { await savePlayer(db, p); return simpleEmbed("Unknown pet", "Check `/mine pet list` for valid pet names.", { color: COLOR_WARN }); }
+    if (!def) { await savePlayer(db, p); return simpleEmbed("Unknown pet", "Check `/petlist` for valid pet names.", { color: COLOR_WARN }); }
     if (p.shards < SHARDS_PER_PET_LEVEL) {
       await savePlayer(db, p);
       return simpleEmbed("Not enough shards", `You need **${SHARDS_PER_PET_LEVEL} shards** to level up a pet. You have **${p.shards}**.`, { color: COLOR_WARN });
@@ -263,7 +307,7 @@ async function handlePet(p: Player, db: any, action: string, options: any[]) {
       .prepare("SELECT id, level FROM player_pets WHERE guild_id=? AND user_id=? AND pet_key=?")
       .bind(p.guild_id, p.user_id, petKey)
       .first()) as { id: number; level: number } | null;
-    if (!owned) { await savePlayer(db, p); return simpleEmbed("You don't own this pet", "Hunt one first with `/mine pet hunt`.", { color: COLOR_WARN }); }
+    if (!owned) { await savePlayer(db, p); return simpleEmbed("You don't own this pet", "Hunt one first with `/pethunt`.", { color: COLOR_WARN }); }
 
     p.shards -= SHARDS_PER_PET_LEVEL;
     await db.prepare("UPDATE player_pets SET level = level + 1 WHERE id = ?").bind(owned.id).run();
@@ -272,25 +316,55 @@ async function handlePet(p: Player, db: any, action: string, options: any[]) {
   }
 
   await savePlayer(db, p);
-  return simpleEmbed("Unknown pet action", "Use `/mine pet hunt`, `/mine pet list`, or `/mine pet upgrade`.", { color: COLOR_WARN });
+  return simpleEmbed("Unknown pet action", "Use `/pethunt`, `/petlist`, or `/petupgrade`.", { color: COLOR_WARN });
 }
 
-// ------------------------------------------------------------- REBIRTH ---
-async function handleRebirth(p: Player, db: any) {
-  if (!canRebirth(p)) {
+// ---------------------------------------------------------- LEADERBOARD ---
+async function handleLeaderboard(p: Player, db: any) {
+  await savePlayer(db, p);
+  const top = (await db
+    .prepare("SELECT user_id, coins FROM players WHERE guild_id=? ORDER BY coins DESC LIMIT 10")
+    .bind(p.guild_id)
+    .all()) as { results: { user_id: string; coins: number }[] };
+
+  const rows = top.results ?? [];
+  const lines = rows.map((r, i) => `#${i + 1}: <@${r.user_id}> - $${r.coins}`);
+
+  const callerRank = (await db
+    .prepare("SELECT COUNT(*) as rank FROM players WHERE guild_id=? AND coins > ?")
+    .bind(p.guild_id, p.coins)
+    .first()) as { rank: number } | null;
+  const myRank = (callerRank?.rank ?? 0) + 1;
+  if (!rows.find((r) => r.user_id === p.user_id)) {
+    lines.push(`—`, `#${myRank}: You - $${p.coins}`);
+  }
+
+  return simpleEmbed("Balance Leaderboard", lines.join("\n") || "No one has any coins yet.", { thumbnail: icon("coin") });
+}
+
+// ------------------------------------------------------------- PRESTIGE ---
+async function handlePrestige(p: Player, db: any) {
+  if (!canPrestige(p)) {
     await savePlayer(db, p);
     return simpleEmbed(
-      "Not ready to rebirth",
-      "You need max-tier pickaxe & backpack (Netherite) and level 50+ before you can rebirth.",
+      "Not ready to prestige",
+      `You need at least $${PRESTIGE_MIN_BALANCE} balance before you can prestige. You have $${p.coins}. ` +
+        `(This requirement is an assumption — the real bot's exact threshold isn't confirmed yet.)`,
       { color: COLOR_WARN }
     );
   }
-  const gemsEarned = applyRebirth(p);
+  const gemsEarned = await applyPrestige(db, p);
   await savePlayer(db, p);
+  const milestoneNote =
+    p.prestige === 2 ? "\nUnlocked: Prestige Tokens!" :
+    p.prestige === 3 ? "\nUnlocked: Investments! (not built yet)" :
+    p.prestige === 5 ? "\nUnlocked: Robbing! (not built yet)" :
+    p.prestige === 10 ? "\nUnlocked: Stocks! (not built yet)" :
+    p.prestige === 15 ? "\nUnlocked: Leaderboard Quick View! (not built yet)" : "";
   return simpleEmbed(
-    "Rebirth complete!",
-    `You reset your progress and earned **${gemsEarned} gems**.\nRebirths: **${p.rebirths}** | Permanent income bonus: **+${p.rebirths * 10}%**` +
-      (p.prestiges > 0 ? `\nPrestige unlocked! Prestige tokens: **${p.prestige_tokens}**` : ""),
+    "Prestige complete!",
+    `You reset your progress and earned **${gemsEarned} gems**.\nPrestige: **${p.prestige}** | Max upgrade slots: **${p.prestige * 10 + 410}**` +
+      milestoneNote,
     { thumbnail: icon("rebirth_icon") }
   );
 }
@@ -417,4 +491,66 @@ async function handleGmBoost(interaction: any, db: any, options: any[], ownerId:
       },
     ],
   });
+}
+
+// ------------------------------------------------------ MINE BUTTON CLICK ---
+// Call this from index.ts when interaction.type === MESSAGE_COMPONENT and
+// custom_id starts with "mine_". Parses the state encoded in the custom_id
+// (see buildMineButtons above), so no DB session lookup is needed.
+export async function handleMineButtonClick(interaction: any, env: { DB: any }) {
+  const db = env.DB;
+  const customId: string = interaction.data?.custom_id ?? "";
+  const match = customId.match(/^mine_(\d)_(\d+)_(\d+)_(\d+)_(-?\d+)_(-?\d+)_(-?\d+)_([a-z]+)$/);
+  if (!match) {
+    return { type: 7, data: { content: "This mine round expired or is invalid.", embeds: [], components: [] } };
+  }
+  const [, clickedIndexStr, guildId, userId, critIndexStr, cashStr, xpStr, materialStr, oreKey] = match;
+  const clickerId = interaction.member?.user?.id ?? interaction.user?.id;
+
+  if (clickerId !== userId) {
+    // Discord requires SOME response; keep the original message untouched
+    // for the actual owner by not editing it — send a private nudge instead.
+    return {
+      type: 4,
+      data: { content: "This isn't your mine round — use `/mine` to start your own.", flags: 64 },
+    };
+  }
+
+  let player = await getOrCreatePlayer(db, guildId, userId);
+  player = await accruePassiveIncome(db, player);
+
+  const preview: MinePreview = {
+    critIndex: Number(critIndexStr),
+    cash: Number(cashStr),
+    xp: Number(xpStr),
+    material: Number(materialStr),
+    oreKey,
+    oreLabel: oreKey,
+  };
+  const clickedIndex = Number(clickedIndexStr);
+  const result = applyMineClick(player, preview, clickedIndex);
+  await savePlayer(db, player);
+
+  const oreDef = ORES.find((o) => o.key === oreKey);
+  const oreLabel = oreDef?.label ?? oreKey;
+
+  return {
+    type: 7, // UPDATE_MESSAGE — edits the original mine-round message in place
+    data: {
+      embeds: [
+        {
+          title: `${oreLabel} Mine Rewards`,
+          color: result.crit ? 0xf1c40f : COLOR,
+          fields: [
+            { name: "Coins", value: `+${result.cash}`, inline: true },
+            { name: oreLabel, value: `+${result.material}`, inline: true },
+            { name: "XP", value: `+${result.xp}`, inline: true },
+          ],
+          description: result.crit ? "**Critical Hit! (2x Rewards)**" : undefined,
+          thumbnail: { url: icon(`ore_${oreKey}`) },
+        },
+      ],
+      components: [], // buttons removed after one use, matching the real bot
+    },
+  };
 }
