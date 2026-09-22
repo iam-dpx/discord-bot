@@ -49,12 +49,20 @@ export const XP_PER_LEVEL = 100; // flat curve for v1: level = floor(xp / 100)
 
 // Ore unlocks now gate on player Level instead of a pickaxe tier (which no
 // longer exists in the real bot's model).
+// Each ore now has 5 art "forms" from the icon pack: 1 = raw (just mined)
+// through 5 = refined block (highest quality). Form is decided at
+// mine-click time: a normal hit gives a random raw-ish form (1-4), a
+// Critical Hit always gives form 5 — ties the art progression to the
+// existing crit mechanic instead of a separate refining system.
+export const ORE_FORM_ICON = (oreKey: string, form: number) => icon(`ore_${oreKey}_${form}`);
+
 export const ORES = [
-  { key: "coal", label: "Coal Ore", minLevel: 1, icon: icon("ore_coal") },
-  { key: "copper", label: "Copper Ore", minLevel: 5, icon: icon("ore_copper") },
-  { key: "iron", label: "Iron Ore", minLevel: 10, icon: icon("ore_iron") },
-  { key: "gold", label: "Gold Ore", minLevel: 20, icon: icon("ore_gold") },
-  { key: "diamond", label: "Diamond Ore", minLevel: 35, icon: icon("ore_diamond") },
+  { key: "copper", label: "Copper Ore", minLevel: 1 },
+  { key: "silver", label: "Silver Ore", minLevel: 8 },
+  { key: "gold", label: "Gold Ore", minLevel: 16 },
+  { key: "platinum", label: "Platinum Ore", minLevel: 26 },
+  { key: "emerald", label: "Emerald Ore", minLevel: 40 },
+  { key: "diamond", label: "Diamond Ore", minLevel: 60 },
 ];
 
 export interface PetDef {

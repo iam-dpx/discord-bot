@@ -12,6 +12,7 @@ import {
   UPGRADE_TYPES,
   PETS,
   ORES,
+  ORE_FORM_ICON,
   HUNT_PET_CHANCE,
   HUNT_SHARD_REWARD,
   SHARDS_PER_PET_LEVEL,
@@ -163,7 +164,7 @@ async function handleCheck(p: Player, db: any) {
           title: "Mine",
           description: "Click a Mine button — one of them is a hidden critical hit worth 2x!",
           color: COLOR,
-          thumbnail: { url: icon(`ore_${preview.oreKey}`) },
+          thumbnail: { url: ORE_FORM_ICON(preview.oreKey, 1) },
         },
       ],
       components: buildMineButtons(p.guild_id, p.user_id, preview),
@@ -533,6 +534,8 @@ export async function handleMineButtonClick(interaction: any, env: { DB: any }) 
 
   const oreDef = ORES.find((o) => o.key === oreKey);
   const oreLabel = oreDef?.label ?? oreKey;
+  const formNames = ["", "Raw", "Chunk", "Cluster", "Refined", "Block"];
+  const formNote = result.crit ? ` — ${formNames[result.form]} quality!` : ` (${formNames[result.form]})`;
 
   return {
     type: 7, // UPDATE_MESSAGE — edits the original mine-round message in place
@@ -543,11 +546,11 @@ export async function handleMineButtonClick(interaction: any, env: { DB: any }) 
           color: result.crit ? 0xf1c40f : COLOR,
           fields: [
             { name: "Coins", value: `+${result.cash}`, inline: true },
-            { name: oreLabel, value: `+${result.material}`, inline: true },
+            { name: oreLabel, value: `+${result.material}${formNote}`, inline: true },
             { name: "XP", value: `+${result.xp}`, inline: true },
           ],
           description: result.crit ? "**Critical Hit! (2x Rewards)**" : undefined,
-          thumbnail: { url: icon(`ore_${oreKey}`) },
+          thumbnail: { url: ORE_FORM_ICON(oreKey, result.form) },
         },
       ],
       components: [], // buttons removed after one use, matching the real bot

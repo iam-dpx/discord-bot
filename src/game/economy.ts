@@ -283,12 +283,15 @@ export function applyMineClick(
   p: Player,
   preview: MinePreview,
   clickedIndex: number
-): { cash: number; xp: number; material: number; crit: boolean } {
+): { cash: number; xp: number; material: number; crit: boolean; form: number } {
   const crit = clickedIndex === preview.critIndex;
   const mult = crit ? MINE_CRIT_MULTIPLIER : 1;
   const cash = preview.cash * mult;
   const xp = preview.xp * mult;
   const material = preview.material * mult;
+  // Crit always yields the highest-quality form (5, the refined block);
+  // a normal hit yields a random raw-to-near-refined form (1-4).
+  const form = crit ? 5 : 1 + Math.floor(Math.random() * 4);
 
   p.coins += cash;
   p.xp += xp;
@@ -296,5 +299,5 @@ export function applyMineClick(
   p.level = levelFromXp(p.xp);
   p.last_mine_click_at = Date.now();
 
-  return { cash, xp, material, crit };
+  return { cash, xp, material, crit, form };
 }
