@@ -42,6 +42,19 @@ import {
 const COLOR = 0x2ecc71;
 const COLOR_WARN = 0xe74c3c;
 
+// Server nickname > global display name > username, matching what
+// actually shows in Discord's UI for that member.
+function displayName(interaction: any): string {
+  return (
+    interaction.member?.nick ??
+    interaction.member?.user?.global_name ??
+    interaction.member?.user?.username ??
+    interaction.user?.global_name ??
+    interaction.user?.username ??
+    "Unknown"
+  );
+}
+
 function reply(content: any) {
   return { type: 4, data: content };
 }
@@ -93,7 +106,7 @@ export async function handleGameCommand(interaction: any, env: { DB: any; OWNER_
     case "sell":
       return handleSell(player, db);
     case "profile":
-      return handleProfile(player, db);
+      return handleProfile(player, db, displayName(interaction));
     case "prestige":
       return handlePrestige(player, db);
     case "leaderboard":
@@ -126,13 +139,15 @@ export async function handleGameCommand(interaction: any, env: { DB: any; OWNER_
 // Encodes the mine-round state directly in each button's custom_id, since
 // slash-command -> button-click are two separate stateless interactions and
 // this avoids needing a session table (same pattern this repo already uses
-// for nuke_confirm_<channelId>).
+// for nuke_confirm_<channelId>). Includes a timestamp so a round expires
+// after MINE_ROUND_EXPIRY_MS of inactivity.
 function buildMineButtons(guildId: string, userId: string, preview: MinePreview) {
-  const payload = `${guildId}_${userId}_${preview.critIndex}_${preview.cash}_${preview.xp}_${preview.material}_${preview.oreKey}`;
+  const ts = Date.now();
+  const payload = `${guildId}_${userId}_${preview.critIndex}_${preview.cash}_${preview.xp}_${preview.material}_${preview.oreKey}_${ts}`;
   return [
     { type: 1, components: [0, 1, 2].map((i) => ({
       type: 2,
-      style: 1, // blurple; the actual crit button looks identical until clicked, matching the real bot's random "which one is green" surprise
+      style: i === preview.critIndex ? 3 : 1, // 3 = green/success (the crit button, visibly marked), 1 = blurple for the rest
       label: "Mine",
       custom_id: `mine_${i}_${payload}`,
     })) },
@@ -182,7 +197,7 @@ async function handleSell(p: Player, db: any) {
   );
 }
 
-async function handleProfile(p: Player, db: any) {
+async function handleProfile(p: Player, db: any, name: string) {
   await savePlayer(db, p);
   const pets = await getOwnedPets(db, p.guild_id, p.user_id);
   const petList = pets.length
@@ -201,7 +216,7 @@ async function handleProfile(p: Player, db: any) {
         color: COLOR,
         thumbnail: { url: icon("factory_icon") },
         fields: [
-          { name: "Factory Name", value: `${p.user_id}'s Factory`, inline: true },
+          { name: "Factory Name", value: `${name}'s Factory`, inline: true },
           { name: "Location", value: "Garage", inline: true },
           { name: "Corporation", value: "None", inline: true },
           { name: "Balance", value: `$${p.coins}`, inline: true },
@@ -497,15 +512,20 @@ async function handleGmBoost(interaction: any, db: any, options: any[], ownerId:
 // ------------------------------------------------------ MINE BUTTON CLICK ---
 // Call this from index.ts when interaction.type === MESSAGE_COMPONENT and
 // custom_id starts with "mine_". Parses the state encoded in the custom_id
-// (see buildMineButtons above), so no DB session lookup is needed.
+// (see buildMineButtons above), so no DB session lookup is needed. The
+// panel stays clickable indefinitely — each click rolls a fresh round and
+// reposts live buttons with a reset expiry — but goes stale and stops
+// responding after MINE_ROUND_EXPIRY_MS since the last click.
+const MINE_ROUND_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
+
 export async function handleMineButtonClick(interaction: any, env: { DB: any }) {
   const db = env.DB;
   const customId: string = interaction.data?.custom_id ?? "";
-  const match = customId.match(/^mine_(\d)_(\d+)_(\d+)_(\d+)_(-?\d+)_(-?\d+)_(-?\d+)_([a-z]+)$/);
+  const match = customId.match(/^mine_(\d)_(\d+)_(\d+)_(\d+)_(-?\d+)_(-?\d+)_(-?\d+)_([a-z]+)_(\d+)$/);
   if (!match) {
     return { type: 7, data: { content: "This mine round expired or is invalid.", embeds: [], components: [] } };
   }
-  const [, clickedIndexStr, guildId, userId, critIndexStr, cashStr, xpStr, materialStr, oreKey] = match;
+  const [, clickedIndexStr, guildId, userId, critIndexStr, cashStr, xpStr, materialStr, oreKey, tsStr] = match;
   const clickerId = interaction.member?.user?.id ?? interaction.user?.id;
 
   if (clickerId !== userId) {
@@ -514,6 +534,18 @@ export async function handleMineButtonClick(interaction: any, env: { DB: any }) 
     return {
       type: 4,
       data: { content: "This isn't your mine round — use `/mine` to start your own.", flags: 64 },
+    };
+  }
+
+  // Stale panel — 30+ min since the last click. Stop responding to it
+  // (edit it into a dead state so the buttons visibly no longer work).
+  if (Date.now() - Number(tsStr) > MINE_ROUND_EXPIRY_MS) {
+    return {
+      type: 7,
+      data: {
+        embeds: [{ title: "Mine round expired", description: "This panel timed out from inactivity — use `/mine` to start a new one.", color: COLOR_WARN }],
+        components: [],
+      },
     };
   }
 
@@ -537,6 +569,11 @@ export async function handleMineButtonClick(interaction: any, env: { DB: any }) 
   const formNames = ["", "Raw", "Chunk", "Cluster", "Refined", "Block"];
   const formNote = result.crit ? ` — ${formNames[result.form]} quality!` : ` (${formNames[result.form]})`;
 
+  // Roll the NEXT round immediately so the panel stays live — reposting
+  // fresh buttons (new random crit position, reset 30-min expiry) instead
+  // of removing them, per "the mine button can be used over and over again."
+  const nextPreview = rollMinePreview(player);
+
   return {
     type: 7, // UPDATE_MESSAGE — edits the original mine-round message in place
     data: {
@@ -553,7 +590,7 @@ export async function handleMineButtonClick(interaction: any, env: { DB: any }) 
           thumbnail: { url: ORE_FORM_ICON(oreKey, result.form) },
         },
       ],
-      components: [], // buttons removed after one use, matching the real bot
+      components: buildMineButtons(guildId, userId, nextPreview),
     },
   };
 }
