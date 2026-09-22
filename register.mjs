@@ -215,12 +215,6 @@ const commands = [
     ],
   },
 ];
-          { name: "minutes", description: "Duration in minutes", type: 4, required: true },
-        ],
-      },
-    ],
-  },
-];
 
 const res = await fetch(`https://discord.com/api/v10/applications/${appId}/commands`, {
   method: "PUT",
