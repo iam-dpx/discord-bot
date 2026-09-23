@@ -15,9 +15,11 @@ import {
   ORE_FORM_ICON,
   HUNT_PET_CHANCE,
   HUNT_SHARD_REWARD,
+  HUNT_PET_SHARD_REWARD,
   SHARDS_PER_PET_LEVEL,
   COOLDOWNS_MS,
   MINE_COOLDOWN_MS,
+  XP_PER_LEVEL,
   icon,
 } from "../game/data";
 import {
@@ -28,13 +30,15 @@ import {
   getUpgradeCounts,
   maxUpgradeSlots,
   nextUpgradeCost,
-  buyUpgrade,
+  buyUpgradeQty,
   getOwnedPets,
+  getPlayerCorp,
   canPrestige,
   applyPrestige,
   PRESTIGE_MIN_BALANCE,
   rollMinePreview,
   applyMineClick,
+  levelFromXp,
   Player,
   MinePreview,
 } from "../game/economy";
@@ -94,6 +98,7 @@ export async function handleGameCommand(interaction: any, env: { DB: any; OWNER_
     const action = optVal(options, "action");
     if (action === "globalboost") return handleGlobalBoost(interaction, db, options, env.OWNER_USER_ID);
     if (action === "gmboost") return handleGmBoost(interaction, db, options, env.OWNER_USER_ID);
+    if (ADJUST_ACTIONS.includes(action)) return handleAdminAdjust(interaction, db, action, options, env.OWNER_USER_ID);
     return simpleEmbed("Unknown admin action", "Pick a valid action from the dropdown.", { color: COLOR_WARN });
   }
 
@@ -122,7 +127,7 @@ export async function handleGameCommand(interaction: any, env: { DB: any; OWNER_
     case "monthly":
       return handleClaim(player, db, "monthly");
     case "upgrade":
-      return handleUpgrade(player, db, optVal(options, "type"), options);
+      return handleUpgrade(player, db);
     case "pethunt":
       return handlePet(player, db, "hunt", options);
     case "petlist":
@@ -205,10 +210,12 @@ async function handleProfile(p: Player, db: any, name: string) {
     : "None yet — try `/pethunt`";
   const rate = await effectiveIncomePerMinute(db, p);
   const factoryAgeDays = Math.floor((Date.now() - p.created_at) / 86400000);
+  const corp = await getPlayerCorp(db, p.guild_id, p.user_id);
+  const corpValue = corp ? `${corp.name}${corp.role === "leader" ? " (Leader)" : ""}` : "None";
 
   // Field order matches the real bot's /profile exactly: Factory Name,
   // Location, Corporation, Balance, Income/min, Prestige, Level, Factory Age.
-  // Location/Corporation are placeholders until those systems are built.
+  // Location is still a placeholder until dimensions/locations are built.
   return reply({
     embeds: [
       {
@@ -218,7 +225,7 @@ async function handleProfile(p: Player, db: any, name: string) {
         fields: [
           { name: "Factory Name", value: `${name}'s Factory`, inline: true },
           { name: "Location", value: "Garage", inline: true },
-          { name: "Corporation", value: "None", inline: true },
+          { name: "Corporation", value: corpValue, inline: true },
           { name: "Balance", value: `$${p.coins}`, inline: true },
           { name: "Income (per minute)", value: `$${Math.floor(rate)}`, inline: true },
           { name: "Prestige", value: `${p.prestige}`, inline: true },
@@ -226,6 +233,7 @@ async function handleProfile(p: Player, db: any, name: string) {
           { name: "Factory Age", value: `${factoryAgeDays} Days`, inline: true },
           { name: "Gems", value: `${p.gems}`, inline: true },
           { name: "Shards", value: `${p.shards}`, inline: true },
+          { name: "Pet Shards", value: `${p.pet_shards}`, inline: true },
           { name: "Materials", value: `${p.materials}`, inline: true },
           { name: "Pets", value: petList, inline: false },
         ],
@@ -235,23 +243,123 @@ async function handleProfile(p: Player, db: any, name: string) {
 }
 
 // -------------------------------------------------------------- UPGRADE ---
-async function handleUpgrade(p: Player, db: any, kind: string, options: any[]) {
-  const def = UPGRADE_TYPES.find((u) => u.key === kind);
-  if (!def) {
-    await savePlayer(db, p);
-    return simpleEmbed("Unknown upgrade", "Use `/upgrade type:size`, `type:miner`, or `type:workers`.", { color: COLOR_WARN });
-  }
+// /upgrade is now button-driven: the slash command just opens the panel
+// (one button per upgrade type, showing its next price); clicking a button
+// opens a modal asking for a quantity, and the modal submission buys up to
+// that many in one batch. This is a shared, public panel — whoever clicks
+// a button upgrades their OWN account, not necessarily whoever ran /upgrade.
+async function buildUpgradePanel(p: Player, db: any) {
+  const counts = await getUpgradeCounts(db, p.guild_id, p.user_id);
+  const totalOwned = counts.size + counts.miner + counts.workers;
+  const slots = maxUpgradeSlots(p);
 
-  const result = await buyUpgrade(db, p, kind);
+  return {
+    embeds: [
+      {
+        title: "Upgrades",
+        description: `Slots used: **${totalOwned}/${slots}**\nTap an upgrade to buy it — you'll be asked how many.`,
+        color: COLOR,
+        fields: UPGRADE_TYPES.map((u) => ({
+          name: u.label,
+          value: `Owned: **${counts[u.key] ?? 0}** | +$${u.profitPerMin}/min each\nNext price: **$${nextUpgradeCost(u.baseCost, counts[u.key] ?? 0)}**`,
+          inline: true,
+        })),
+      },
+    ],
+    components: [
+      {
+        type: 1,
+        components: UPGRADE_TYPES.map((u) => ({
+          type: 2,
+          style: 1,
+          label: `${u.label} — $${nextUpgradeCost(u.baseCost, counts[u.key] ?? 0)}`,
+          custom_id: `upg_pick_${u.key}`,
+        })),
+      },
+    ],
+  };
+}
+
+async function handleUpgrade(p: Player, db: any) {
   await savePlayer(db, p);
-  if (!result.ok) {
-    return simpleEmbed("Can't upgrade", result.reason ?? "Something went wrong.", { color: COLOR_WARN });
+  const panel = await buildUpgradePanel(p, db);
+  return reply(panel);
+}
+
+// Button click ("upg_pick_<type>") -> opens a modal asking for quantity.
+// No DB access needed here — nothing is spent until the modal is submitted.
+export async function handleUpgradeButtonClick(interaction: any) {
+  const customId: string = interaction.data?.custom_id ?? "";
+  const match = customId.match(/^upg_pick_(size|miner|workers)$/);
+  if (!match) {
+    return { type: 4, data: { content: "That upgrade button isn't valid anymore — run `/upgrade` again.", flags: 64 } };
   }
-  return simpleEmbed(
-    `${def.label} upgraded!`,
-    `Cost: $${result.cost}. +$${def.profitPerMin}/min income.`,
-    { thumbnail: def.icon }
-  );
+  const key = match[1];
+  const def = UPGRADE_TYPES.find((u) => u.key === key);
+  return {
+    type: 9, // MODAL
+    data: {
+      custom_id: `upg_modal_${key}`,
+      title: `Buy ${def?.label ?? key}`,
+      components: [
+        {
+          type: 1,
+          components: [
+            {
+              type: 4, // TEXT_INPUT
+              custom_id: "qty",
+              style: 1, // short
+              label: "How many do you want to buy?",
+              placeholder: "1",
+              value: "1",
+              required: true,
+              max_length: 6,
+            },
+          ],
+        },
+      ],
+    },
+  };
+}
+
+// Modal submission -> actually spends coins, then re-renders the panel in
+// place (UPDATE_MESSAGE is allowed here since the modal was opened from the
+// message's own button).
+export async function handleUpgradeModalSubmit(interaction: any, env: { DB: any }) {
+  const db = env.DB;
+  const customId: string = interaction.data?.custom_id ?? "";
+  const match = customId.match(/^upg_modal_(size|miner|workers)$/);
+  if (!match) {
+    return { type: 4, data: { content: "Something went wrong reading that upgrade.", flags: 64 } };
+  }
+  const key = match[1];
+  const guildId = interaction.guild_id;
+  const userId = interaction.member?.user?.id ?? interaction.user?.id;
+
+  const qtyRaw = interaction.data?.components?.[0]?.components?.[0]?.value ?? "1";
+  let qty = parseInt(qtyRaw, 10);
+  if (!Number.isFinite(qty) || qty < 1) qty = 1;
+  qty = Math.min(qty, 1000); // sanity cap — batches larger than this rarely matter
+
+  let player = await getOrCreatePlayer(db, guildId, userId);
+  player = await accruePassiveIncome(db, player);
+  const result = await buyUpgradeQty(db, player, key, qty);
+  await savePlayer(db, player);
+
+  const panel = await buildUpgradePanel(player, db);
+  const summary =
+    result.purchased > 0
+      ? `Bought **${result.purchased}x ${result.def?.label ?? key}** for **$${result.totalCost}**.${result.reason ? ` (${result.reason})` : ""}`
+      : `Couldn't buy any — ${result.reason ?? "something went wrong."}`;
+
+  return {
+    type: 7, // UPDATE_MESSAGE
+    data: {
+      content: summary,
+      embeds: panel.embeds,
+      components: panel.components,
+    },
+  };
 }
 
 // ------------------------------------------------------------------ PETS ---
@@ -276,10 +384,10 @@ async function handlePet(p: Player, db: any, action: string, options: any[]) {
       const owned = await getOwnedPets(db, p.guild_id, p.user_id);
       const already = owned.find((o) => o.pet_key === chosen.key);
       if (already) {
-        // duplicate -> convert to shards instead of a second copy
-        p.shards += HUNT_SHARD_REWARD;
+        // duplicate -> convert to pet shards (spent via /petupgrade) instead of a second copy
+        p.pet_shards += HUNT_PET_SHARD_REWARD;
         await savePlayer(db, p);
-        return simpleEmbed("Duplicate pet!", `You found another **${chosen.label}** — converted to **${HUNT_SHARD_REWARD} shards** instead.`, { thumbnail: chosen.icon });
+        return simpleEmbed("Duplicate pet!", `You found another **${chosen.label}** — converted to **${HUNT_PET_SHARD_REWARD} pet shards** instead.`, { thumbnail: icon("pet_shard") });
       }
       await db
         .prepare("INSERT INTO player_pets (guild_id, user_id, pet_key, level, obtained_at) VALUES (?, ?, ?, 1, ?)")
@@ -315,9 +423,9 @@ async function handlePet(p: Player, db: any, action: string, options: any[]) {
     const petKey = optVal(options, "pet");
     const def = PETS.find((x) => x.key === petKey);
     if (!def) { await savePlayer(db, p); return simpleEmbed("Unknown pet", "Check `/petlist` for valid pet names.", { color: COLOR_WARN }); }
-    if (p.shards < SHARDS_PER_PET_LEVEL) {
+    if (p.pet_shards < SHARDS_PER_PET_LEVEL) {
       await savePlayer(db, p);
-      return simpleEmbed("Not enough shards", `You need **${SHARDS_PER_PET_LEVEL} shards** to level up a pet. You have **${p.shards}**.`, { color: COLOR_WARN });
+      return simpleEmbed("Not enough pet shards", `You need **${SHARDS_PER_PET_LEVEL} pet shards** to level up a pet. You have **${p.pet_shards}**. Hunt duplicates with \`/pethunt\` to earn more.`, { color: COLOR_WARN, thumbnail: icon("pet_shard") });
     }
     const owned = (await db
       .prepare("SELECT id, level FROM player_pets WHERE guild_id=? AND user_id=? AND pet_key=?")
@@ -325,7 +433,7 @@ async function handlePet(p: Player, db: any, action: string, options: any[]) {
       .first()) as { id: number; level: number } | null;
     if (!owned) { await savePlayer(db, p); return simpleEmbed("You don't own this pet", "Hunt one first with `/pethunt`.", { color: COLOR_WARN }); }
 
-    p.shards -= SHARDS_PER_PET_LEVEL;
+    p.pet_shards -= SHARDS_PER_PET_LEVEL;
     await db.prepare("UPDATE player_pets SET level = level + 1 WHERE id = ?").bind(owned.id).run();
     await savePlayer(db, p);
     return simpleEmbed("Pet leveled up!", `Your **${def.label}** is now level **${owned.level + 1}**.`, { thumbnail: def.icon });
@@ -486,7 +594,8 @@ async function handleGmBoost(interaction: any, db: any, options: any[], ownerId:
   if (callerId !== ownerId) {
     return simpleEmbed("Not allowed", "Only the Game Master can gift a booster.", { color: COLOR_WARN });
   }
-  const targetId = optVal(options, "user");
+  // Leave the user option blank to gift the booster to yourself.
+  const targetId = optVal(options, "user") ?? callerId;
   const multiplier = Number(optVal(options, "multiplier") ?? 2);
   const minutes = Number(optVal(options, "minutes") ?? 60);
   const guildId = interaction.guild_id;
@@ -502,6 +611,67 @@ async function handleGmBoost(interaction: any, db: any, options: any[], ownerId:
       {
         title: "Gifted by the Game Master",
         description: `<@${targetId}> received a **x${multiplier}** income booster for **${minutes} minutes**!`,
+        color: COLOR,
+        thumbnail: { url: icon("booster_gm") },
+      },
+    ],
+  });
+}
+
+// Increase or decrease a target's currency/XP directly. Positive `amount`
+// gives, negative takes away. Leave the `user` option blank to target
+// yourself (self-gift). Values are clamped at 0 — this can't push anyone
+// negative.
+const ADJUST_ACTIONS = ["adjustcoins", "adjustgems", "adjustshards", "adjustpetshards", "adjustxp", "setlevel"];
+const ADJUST_FIELD: Record<string, "coins" | "gems" | "shards" | "pet_shards"> = {
+  adjustcoins: "coins",
+  adjustgems: "gems",
+  adjustshards: "shards",
+  adjustpetshards: "pet_shards",
+};
+const ADJUST_LABEL: Record<string, string> = {
+  adjustcoins: "Coins",
+  adjustgems: "Gems",
+  adjustshards: "Shards",
+  adjustpetshards: "Pet Shards",
+};
+
+async function handleAdminAdjust(interaction: any, db: any, action: string, options: any[], ownerId: string) {
+  const callerId = interaction.member?.user?.id ?? interaction.user?.id;
+  if (callerId !== ownerId) {
+    return simpleEmbed("Not allowed", "Only the Game Master can adjust a player's stats.", { color: COLOR_WARN });
+  }
+  const guildId = interaction.guild_id;
+  const targetId = optVal(options, "user") ?? callerId; // leave user blank to target yourself
+  const amount = Number(optVal(options, "amount") ?? 0);
+
+  let player = await getOrCreatePlayer(db, guildId, targetId);
+  player = await accruePassiveIncome(db, player);
+
+  let description: string;
+  const signed = amount >= 0 ? `+${amount}` : `${amount}`;
+
+  if (action === "setlevel") {
+    const targetLevel = Math.max(1, Math.floor(amount));
+    player.xp = (targetLevel - 1) * XP_PER_LEVEL;
+    player.level = levelFromXp(player.xp);
+    description = `<@${targetId}>'s level set to **${player.level}**.`;
+  } else if (action === "adjustxp") {
+    player.xp = Math.max(0, player.xp + amount);
+    player.level = levelFromXp(player.xp);
+    description = `<@${targetId}>'s XP adjusted by **${signed}** — now **${player.xp} XP** (Level **${player.level}**).`;
+  } else {
+    const field = ADJUST_FIELD[action];
+    (player as any)[field] = Math.max(0, (player as any)[field] + amount);
+    description = `<@${targetId}>'s **${ADJUST_LABEL[action]}** adjusted by **${signed}** — now **${(player as any)[field]}**.`;
+  }
+
+  await savePlayer(db, player);
+  return reply({
+    embeds: [
+      {
+        title: "Admin Adjustment",
+        description,
         color: COLOR,
         thumbnail: { url: icon("booster_gm") },
       },

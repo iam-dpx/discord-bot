@@ -156,27 +156,16 @@ const commands = [
   { name: "weekly", description: "Claim your weekly reward" },
   { name: "monthly", description: "Claim your monthly reward" },
   {
+    // No options anymore — this opens a button panel (Size/Miner/Workers),
+    // each button opens a modal asking how many to buy. See src/commands/mine.ts.
     name: "upgrade",
-    description: "Upgrade your gear",
-    options: [
-      {
-        name: "type",
-        description: "Which gear to upgrade",
-        type: 3,
-        required: true,
-        choices: [
-          { name: "Size", value: "size" },
-          { name: "Miner", value: "miner" },
-          { name: "Workers", value: "workers" },
-        ],
-      },
-    ],
+    description: "Open the upgrade panel (Size / Miner / Workers)",
   },
   { name: "pethunt", description: "Go hunting for a pet" },
   { name: "petlist", description: "See all available pets" },
   {
     name: "petupgrade",
-    description: "Level up one of your pets using shards",
+    description: "Level up one of your pets using pet shards",
     options: [
       {
         name: "pet",
@@ -205,13 +194,89 @@ const commands = [
         required: true,
         choices: [
           { name: "Start global booster (server-wide)", value: "globalboost" },
-          { name: "Gift a booster to one player", value: "gmboost" },
+          { name: "Gift an income booster to a player", value: "gmboost" },
+          { name: "Adjust Coins (+/-)", value: "adjustcoins" },
+          { name: "Adjust Gems (+/-)", value: "adjustgems" },
+          { name: "Adjust Shards (+/-)", value: "adjustshards" },
+          { name: "Adjust Pet Shards (+/-)", value: "adjustpetshards" },
+          { name: "Adjust XP (+/-)", value: "adjustxp" },
+          { name: "Set Level", value: "setlevel" },
         ],
       },
-      { name: "user", description: "Target player (for Gift a booster)", type: 6, required: false },
-      { name: "multiplier", description: "e.g. 2 for 2x income", type: 10, required: false },
-      { name: "minutes", description: "Duration in minutes", type: 4, required: false },
+      // Leave "user" blank on any action to target yourself (self-gift / self-booster).
+      { name: "user", description: "Target player — leave blank to target yourself", type: 6, required: false },
+      { name: "multiplier", description: "e.g. 2 for 2x income (boosters only)", type: 10, required: false },
+      { name: "minutes", description: "Duration in minutes (boosters only)", type: 4, required: false },
       { name: "label", description: "What to call this event (global booster only)", type: 3, required: false },
+      { name: "amount", description: "Positive to give, negative to take away (adjust actions); target value for Set Level", type: 4, required: false },
+    ],
+  },
+  {
+    name: "corp",
+    description: "Corporations — team up, share a bank, and earn a group income buff",
+    options: [
+      {
+        name: "create",
+        description: "Found a new corporation (you become its leader)",
+        type: 1,
+        options: [{ name: "name", description: "Corporation name", type: 3, required: true, max_length: 32 }],
+      },
+      {
+        name: "join",
+        description: "Join an existing corporation by name",
+        type: 1,
+        options: [{ name: "name", description: "Corporation name", type: 3, required: true }],
+      },
+      { name: "leave", description: "Leave your current corporation", type: 1 },
+      {
+        name: "info",
+        description: "View your corporation's (or a named one's) bank, buff, and roster",
+        type: 1,
+        options: [{ name: "name", description: "Leave blank to see your own corporation", type: 3, required: false }],
+      },
+      {
+        name: "deposit",
+        description: "Deposit coins or gems into your corporation's bank",
+        type: 1,
+        options: [
+          { name: "amount", description: "Amount to deposit", type: 4, required: true, min_value: 1 },
+          {
+            name: "asset",
+            description: "Coins or gems",
+            type: 3,
+            required: false,
+            choices: [
+              { name: "Coins", value: "coins" },
+              { name: "Gems", value: "gems" },
+            ],
+          },
+        ],
+      },
+      {
+        name: "withdraw",
+        description: "[Leader only] Withdraw coins or gems from the corporation bank",
+        type: 1,
+        options: [
+          { name: "amount", description: "Amount to withdraw", type: 4, required: true, min_value: 1 },
+          {
+            name: "asset",
+            description: "Coins or gems",
+            type: 3,
+            required: false,
+            choices: [
+              { name: "Coins", value: "coins" },
+              { name: "Gems", value: "gems" },
+            ],
+          },
+        ],
+      },
+      {
+        name: "kick",
+        description: "[Leader only] Remove a member from your corporation",
+        type: 1,
+        options: [{ name: "user", description: "Member to remove", type: 6, required: true }],
+      },
+      { name: "leaderboard", description: "Top corporations by bank balance", type: 1 },
     ],
   },
 ];

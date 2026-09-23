@@ -11,6 +11,7 @@ import {
   MINE_BASE_MATERIAL,
   MINE_CRIT_MULTIPLIER,
   XP_PER_LEVEL,
+  corpBuffForBank,
 } from "./data";
 
 export interface Player {
@@ -19,6 +20,7 @@ export interface Player {
   coins: number;
   gems: number;
   shards: number;
+  pet_shards: number;
   prestige_tokens: number;
   materials: number;
   xp: number;
@@ -65,6 +67,7 @@ export async function getOrCreatePlayer(
     coins: 0,
     gems: 0,
     shards: 0,
+    pet_shards: 0,
     prestige_tokens: 0,
     materials: 0,
     xp: 0,
@@ -83,13 +86,13 @@ export async function getOrCreatePlayer(
 export async function savePlayer(db: any, p: Player) {
   await db
     .prepare(
-      `UPDATE players SET coins=?, gems=?, shards=?, prestige_tokens=?,
+      `UPDATE players SET coins=?, gems=?, shards=?, pet_shards=?, prestige_tokens=?,
        materials=?, xp=?, level=?, rebirths=?, last_collected_at=?, last_mine_click_at=?,
        last_daily_at=?, last_weekly_at=?, last_monthly_at=?, last_hunt_at=?
        WHERE guild_id=? AND user_id=?`
     )
     .bind(
-      p.coins, p.gems, p.shards, p.prestige_tokens,
+      p.coins, p.gems, p.shards, p.pet_shards, p.prestige_tokens,
       p.materials, p.xp, p.level, p.prestige, p.last_collected_at, p.last_mine_click_at,
       p.last_daily_at, p.last_weekly_at, p.last_monthly_at, p.last_hunt_at,
       p.guild_id, p.user_id
@@ -145,6 +148,61 @@ export async function buyUpgrade(
   return { ok: true, cost };
 }
 
+// Buys up to `qty` units of one upgrade type in a single batch, stopping
+// early if coins run out or the max upgrade slot cap is hit. Used by the
+// /upgrade button + quantity modal flow (buyUpgrade above still exists for
+// any single-purchase caller).
+export async function buyUpgradeQty(
+  db: any,
+  p: Player,
+  upgradeKey: string,
+  qty: number
+): Promise<{ purchased: number; totalCost: number; reason?: string; def?: UpgradeTypeLike }> {
+  const def = UPGRADE_TYPES.find((u) => u.key === upgradeKey);
+  if (!def) return { purchased: 0, totalCost: 0, reason: "Unknown upgrade type." };
+
+  const counts = await getUpgradeCounts(db, p.guild_id, p.user_id);
+  let totalOwned = counts.size + counts.miner + counts.workers;
+  const maxSlots = maxUpgradeSlots(p);
+
+  let purchased = 0;
+  let totalCost = 0;
+  let stoppedReason: string | undefined;
+
+  for (let i = 0; i < qty; i++) {
+    if (totalOwned >= maxSlots) {
+      stoppedReason = `Hit your max upgrade slots (${maxSlots}).`;
+      break;
+    }
+    const cost = nextUpgradeCost(def.baseCost, counts[upgradeKey] ?? 0);
+    if (p.coins < cost) {
+      stoppedReason = `Ran out of coins (next one costs $${cost}).`;
+      break;
+    }
+    p.coins -= cost;
+    counts[upgradeKey] = (counts[upgradeKey] ?? 0) + 1;
+    totalOwned += 1;
+    totalCost += cost;
+    purchased += 1;
+  }
+
+  if (purchased > 0) {
+    await db
+      .prepare(
+        `INSERT INTO player_upgrades (guild_id, user_id, upgrade_key, count) VALUES (?, ?, ?, ?)
+         ON CONFLICT (guild_id, user_id, upgrade_key) DO UPDATE SET count = count + ?`
+      )
+      .bind(p.guild_id, p.user_id, upgradeKey, purchased, purchased)
+      .run();
+  } else if (!stoppedReason) {
+    stoppedReason = "Couldn't afford even one.";
+  }
+
+  return { purchased, totalCost, reason: purchased < qty ? stoppedReason : undefined, def };
+}
+
+type UpgradeTypeLike = { key: string; label: string; baseCost: number; profitPerMin: number; icon: string };
+
 // ------------------------------------------------------- PASSIVE INCOME ---
 export async function getOwnedPets(db: any, guildId: string, userId: string) {
   const rows = (await db
@@ -192,6 +250,29 @@ export async function activeBoosterMultiplier(
   return mult;
 }
 
+// ------------------------------------------------------- CORPORATIONS ---
+export interface CorpRow {
+  id: number;
+  guild_id: string;
+  name: string;
+  leader_id: string;
+  bank_coins: number;
+  bank_gems: number;
+  created_at: number;
+  role: string;
+}
+
+export async function getPlayerCorp(db: any, guildId: string, userId: string): Promise<CorpRow | null> {
+  return (await db
+    .prepare(
+      `SELECT c.*, cm.role as role FROM corp_members cm
+       JOIN corporations c ON c.id = cm.corp_id
+       WHERE cm.guild_id = ? AND cm.user_id = ?`
+    )
+    .bind(guildId, userId)
+    .first()) as CorpRow | null;
+}
+
 export function levelFromXp(xp: number): number {
   return 1 + Math.floor(xp / XP_PER_LEVEL);
 }
@@ -209,7 +290,9 @@ export async function effectiveIncomePerMinute(db: any, p: Player): Promise<numb
   const petMult = 1 + petBonusPercent(owned, "income") / 100;
   const boosterMult = await activeBoosterMultiplier(db, p.guild_id, p.user_id, "income");
   const prestigeMult = 1 + p.prestige * 0.1;
-  return baseIncomePerMinute(counts) * petMult * boosterMult * prestigeMult;
+  const corp = await getPlayerCorp(db, p.guild_id, p.user_id);
+  const corpMult = corp ? corpBuffForBank(corp.bank_coins).mult : 1;
+  return baseIncomePerMinute(counts) * petMult * boosterMult * prestigeMult * corpMult;
 }
 
 export async function accruePassiveIncome(db: any, p: Player): Promise<Player> {

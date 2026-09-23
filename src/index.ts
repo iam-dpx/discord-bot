@@ -17,7 +17,13 @@ import {
 import { handleServerListInteraction } from "./serverlist/index.js";
 import { discordApi, ephemeralReply, jsonResponse } from "./shared";
 import { handleRulesCommand } from "./rules";
-import { handleGameCommand, handleMineButtonClick } from "./commands/mine";
+import {
+  handleGameCommand,
+  handleMineButtonClick,
+  handleUpgradeButtonClick,
+  handleUpgradeModalSubmit,
+} from "./commands/mine";
+import { handleCorpCommand } from "./commands/corp";
 
 export interface Env {
   DISCORD_PUBLIC_KEY: string;
@@ -438,6 +444,13 @@ async function handleCommand(env: Env, interaction: DiscordInteraction): Promise
       const result = await handleGameCommand(interaction, env);
       return jsonResponse(result);
     }
+    case "corp": {
+      // /corp keeps its own subcommand-based handler (create/join/leave/
+      // info/deposit/withdraw/kick/leaderboard), separate from the flat
+      // /mine-family dispatcher above.
+      const result = await handleCorpCommand(interaction, env);
+      return jsonResponse(result);
+    }
     default:
       return ephemeralReply("Unknown command.");
   }
@@ -543,6 +556,17 @@ export default {
 
     if (interaction.type === InteractionType.MESSAGE_COMPONENT && interaction.data?.custom_id?.startsWith("mine_")) {
       const result = await handleMineButtonClick(interaction, env);
+      return jsonResponse(result);
+    }
+
+    if (interaction.type === InteractionType.MESSAGE_COMPONENT && interaction.data?.custom_id?.startsWith("upg_pick_")) {
+      // Opens the buy-quantity modal — no DB access needed yet.
+      const result = await handleUpgradeButtonClick(interaction);
+      return jsonResponse(result);
+    }
+
+    if (interaction.type === InteractionType.MODAL_SUBMIT && interaction.data?.custom_id?.startsWith("upg_modal_")) {
+      const result = await handleUpgradeModalSubmit(interaction, env);
       return jsonResponse(result);
     }
 

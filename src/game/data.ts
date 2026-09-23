@@ -86,14 +86,35 @@ export const PETS: PetDef[] = [
 ];
 
 export const HUNT_SHARD_REWARD = 15; // shards given when a hunt whiffs (no pet)
+export const HUNT_PET_SHARD_REWARD = 15; // pet shards given when a hunt finds a duplicate pet
 export const HUNT_PET_CHANCE = 0.35; // 35% chance per /mine pet hunt to get a pet instead of shards
-export const SHARDS_PER_PET_LEVEL = 40; // cost to level a pet up by 1
+export const SHARDS_PER_PET_LEVEL = 40; // pet shards required to level a pet up by 1
 
 export const CRATE_TYPES = [
   { key: "common", label: "Common Crate", icon: icon("crate_common") },
   { key: "rare", label: "Rare Crate", icon: icon("crate_rare") },
+  { key: "epic", label: "Epic Crate", icon: icon("crate_epic") },
   { key: "legendary", label: "Legendary Crate", icon: icon("crate_legendary") },
 ];
+
+// ------------------------------------------------------- CORPORATIONS ---
+// Buff tier is looked up from the corp's total bank_coins — every member
+// gets the multiplier applied to their passive income while they're in the
+// corp. ASSUMPTION: thresholds/percentages are a fresh design (no reference
+// screenshot for this system), tune later if needed.
+export const CORP_BUFF_TIERS = [
+  { minBank: 0, mult: 1.0, label: "No Buff" },
+  { minBank: 5000, mult: 1.05, label: "+5% Income" },
+  { minBank: 25000, mult: 1.1, label: "+10% Income" },
+  { minBank: 100000, mult: 1.15, label: "+15% Income" },
+  { minBank: 500000, mult: 1.25, label: "+25% Income" },
+];
+export function corpBuffForBank(bankCoins: number) {
+  let tier = CORP_BUFF_TIERS[0];
+  for (const t of CORP_BUFF_TIERS) if (bankCoins >= t.minBank) tier = t;
+  return tier;
+}
+export const CORP_MAX_MEMBERS = 25; // ASSUMPTION — reasonable cap, not confirmed
 
 export const COOLDOWNS_MS = {
   hunt: 30 * 60 * 1000, // 30 min
