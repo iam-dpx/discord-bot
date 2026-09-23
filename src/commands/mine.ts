@@ -39,6 +39,7 @@ import {
   rollMinePreview,
   applyMineClick,
   levelFromXp,
+  awardRandomCrate,
   Player,
   MinePreview,
 } from "../game/economy";
@@ -553,11 +554,24 @@ async function handleClaim(p: Player, db: any, kind: "daily" | "weekly" | "month
   p.gems += gemReward[kind];
   (p as any)[field] = now;
   await savePlayer(db, p);
-  return simpleEmbed(
-    `${kind[0].toUpperCase()}${kind.slice(1)} reward claimed!`,
-    `+${rewards[kind]} coins${gemReward[kind] ? ` and +${gemReward[kind]} gems` : ""}.`,
-    { thumbnail: icon("coin") }
-  );
+
+  // On top of the flat coins/gems above, every claim also rolls one random
+  // crate — rarity odds get better the longer the cooldown (see
+  // CLAIM_CRATE_ODDS in ../game/data). Open it later with /crate.
+  const crateDef = await awardRandomCrate(db, p.guild_id, p.user_id, kind);
+
+  return reply({
+    embeds: [
+      {
+        title: `${kind[0].toUpperCase()}${kind.slice(1)} reward claimed!`,
+        description:
+          `+${rewards[kind]} coins${gemReward[kind] ? ` and +${gemReward[kind]} gems` : ""}.\n` +
+          `You also got a **${crateDef.label}**! Open it with \`/crate\`.`,
+        color: COLOR,
+        thumbnail: { url: crateDef.icon },
+      },
+    ],
+  });
 }
 
 // --------------------------------------------------- OWNER-ONLY BOOSTS ---

@@ -12,6 +12,11 @@ import {
   MINE_CRIT_MULTIPLIER,
   XP_PER_LEVEL,
   corpBuffForBank,
+  CRATE_TYPES,
+  CRATE_REWARD_POOLS,
+  BOOSTER_TIERS,
+  CLAIM_CRATE_ODDS,
+  weightedPick,
 } from "./data";
 
 export interface Player {
@@ -383,4 +388,196 @@ export function applyMineClick(
   p.last_mine_click_at = Date.now();
 
   return { cash, xp, material, crit, form };
+}
+
+// -------------------------------------------------------- CRATE INVENTORY ---
+export interface CrateInventoryRow {
+  crate_type: string;
+  quantity: number;
+}
+
+export async function getCrateInventory(db: any, guildId: string, userId: string): Promise<CrateInventoryRow[]> {
+  const rows = (await db
+    .prepare("SELECT crate_type, quantity FROM player_crates WHERE guild_id=? AND user_id=? AND quantity > 0")
+    .bind(guildId, userId)
+    .all()) as { results: CrateInventoryRow[] };
+  return rows.results ?? [];
+}
+
+export async function addCrateToInventory(db: any, guildId: string, userId: string, crateKey: string, qty = 1) {
+  await db
+    .prepare(
+      `INSERT INTO player_crates (guild_id, user_id, crate_type, quantity) VALUES (?, ?, ?, ?)
+       ON CONFLICT (guild_id, user_id, crate_type) DO UPDATE SET quantity = quantity + ?`
+    )
+    .bind(guildId, userId, crateKey, qty, qty)
+    .run();
+}
+
+// Rolls a random crate rarity for a /daily /weekly /monthly claim (odds in
+// CLAIM_CRATE_ODDS) and adds it to inventory. Returns the crate def so the
+// caller can show its label/icon in the claim embed.
+export async function awardRandomCrate(
+  db: any,
+  guildId: string,
+  userId: string,
+  kind: "daily" | "weekly" | "monthly"
+) {
+  const picked = weightedPick(CLAIM_CRATE_ODDS[kind]);
+  await addCrateToInventory(db, guildId, userId, picked.key, 1);
+  return CRATE_TYPES.find((c) => c.key === picked.key)!;
+}
+
+export interface CrateOpenResult {
+  ok: boolean;
+  reason?: string;
+  rewardType?: "coins" | "gems" | "booster";
+  amount?: number;
+  boosterTier?: string;
+}
+
+// Opens ONE crate of crateKey: decrements inventory by 1, rolls a reward
+// from CRATE_REWARD_POOLS (credits coins/gems directly, or adds a booster
+// item to inventory — never auto-activates it), and always persists the
+// player row (covers any passive income the caller already accrued, even on
+// a failure path). Returns ok:false on a stale/double-clicked button rather
+// than throwing, matching this repo's existing error-handling style.
+export async function openCrateForPlayer(db: any, p: Player, crateKey: string): Promise<CrateOpenResult> {
+  const row = (await db
+    .prepare("SELECT quantity FROM player_crates WHERE guild_id=? AND user_id=? AND crate_type=?")
+    .bind(p.guild_id, p.user_id, crateKey)
+    .first()) as { quantity: number } | null;
+  if (!row || row.quantity < 1) {
+    await savePlayer(db, p);
+    return { ok: false, reason: "You don't have one of those anymore." };
+  }
+
+  const pool = CRATE_REWARD_POOLS[crateKey];
+  if (!pool) {
+    await savePlayer(db, p);
+    return { ok: false, reason: "Unknown crate type." };
+  }
+
+  await db
+    .prepare("UPDATE player_crates SET quantity = quantity - 1 WHERE guild_id=? AND user_id=? AND crate_type=?")
+    .bind(p.guild_id, p.user_id, crateKey)
+    .run();
+
+  const reward = weightedPick(pool);
+  let result: CrateOpenResult;
+
+  if (reward.type === "coins") {
+    const amount = Math.floor((reward.min ?? 0) + Math.random() * ((reward.max ?? 0) - (reward.min ?? 0)));
+    p.coins += amount;
+    result = { ok: true, rewardType: "coins", amount };
+  } else if (reward.type === "gems") {
+    const amount = Math.floor((reward.min ?? 0) + Math.random() * ((reward.max ?? 0) - (reward.min ?? 0)));
+    p.gems += amount;
+    result = { ok: true, rewardType: "gems", amount };
+  } else {
+    await addBoosterItemToInventory(db, p.guild_id, p.user_id, reward.boosterTier!, 1);
+    result = { ok: true, rewardType: "booster", boosterTier: reward.boosterTier };
+  }
+
+  await savePlayer(db, p);
+  return result;
+}
+
+// ----------------------------------------------------- BOOSTER INVENTORY ---
+// Unactivated boosters pulled from crates. Separate from player_boosters,
+// which only ever holds ACTIVE, ticking boosters (real expires_at).
+export interface BoosterInventoryRow {
+  booster_tier: string;
+  quantity: number;
+}
+
+export async function getBoosterInventory(db: any, guildId: string, userId: string): Promise<BoosterInventoryRow[]> {
+  const rows = (await db
+    .prepare("SELECT booster_tier, quantity FROM player_booster_items WHERE guild_id=? AND user_id=? AND quantity > 0")
+    .bind(guildId, userId)
+    .all()) as { results: BoosterInventoryRow[] };
+  return rows.results ?? [];
+}
+
+export async function addBoosterItemToInventory(db: any, guildId: string, userId: string, tier: string, qty = 1) {
+  await db
+    .prepare(
+      `INSERT INTO player_booster_items (guild_id, user_id, booster_tier, quantity) VALUES (?, ?, ?, ?)
+       ON CONFLICT (guild_id, user_id, booster_tier) DO UPDATE SET quantity = quantity + ?`
+    )
+    .bind(guildId, userId, tier, qty, qty)
+    .run();
+}
+
+export interface ActivateBoosterResult {
+  ok: boolean;
+  reason?: string;
+  multiplier?: number;
+  durationMinutes?: number;
+}
+
+// Moves ONE booster item from inventory into an ACTIVE player_boosters row
+// (booster_type 'income'). Stacks with anything already active — same as
+// GM-gifted boosters already do, since activeBoosterMultiplier() multiplies
+// every non-expired row together.
+export async function activateBoosterItem(
+  db: any,
+  guildId: string,
+  userId: string,
+  tier: string
+): Promise<ActivateBoosterResult> {
+  const def = BOOSTER_TIERS.find((b) => b.key === tier);
+  if (!def) return { ok: false, reason: "Unknown booster tier." };
+
+  const row = (await db
+    .prepare("SELECT quantity FROM player_booster_items WHERE guild_id=? AND user_id=? AND booster_tier=?")
+    .bind(guildId, userId, tier)
+    .first()) as { quantity: number } | null;
+  if (!row || row.quantity < 1) return { ok: false, reason: "You don't have one of those anymore." };
+
+  await db
+    .prepare("UPDATE player_booster_items SET quantity = quantity - 1 WHERE guild_id=? AND user_id=? AND booster_tier=?")
+    .bind(guildId, userId, tier)
+    .run();
+
+  const expiresAt = Date.now() + def.durationMinutes * 60000;
+  await db
+    .prepare(
+      "INSERT INTO player_boosters (guild_id, user_id, booster_type, multiplier, expires_at, source) VALUES (?, ?, 'income', ?, ?, 'crate')"
+    )
+    .bind(guildId, userId, def.multiplier, expiresAt)
+    .run();
+
+  return { ok: true, multiplier: def.multiplier, durationMinutes: def.durationMinutes };
+}
+
+// -------------------------------------------------------- ACTIVE BOOSTERS ---
+export interface ActiveBoosterRow {
+  multiplier: number;
+  expires_at: number;
+  scope: "personal" | "global";
+  label?: string;
+}
+
+// Everything currently boosting this player's income: their own personal
+// boosters (from GM gifts or activated crate items) plus any server-wide
+// global booster running in this guild.
+export async function getActiveBoosters(db: any, guildId: string, userId: string): Promise<ActiveBoosterRow[]> {
+  const now = Date.now();
+  const personal = (await db
+    .prepare(
+      `SELECT multiplier, expires_at FROM player_boosters
+       WHERE guild_id=? AND user_id=? AND booster_type='income' AND expires_at > ? ORDER BY expires_at ASC`
+    )
+    .bind(guildId, userId, now)
+    .all()) as { results: { multiplier: number; expires_at: number }[] };
+  const global = (await db
+    .prepare(`SELECT multiplier, expires_at, label FROM global_boosters WHERE guild_id=? AND expires_at > ? ORDER BY expires_at ASC`)
+    .bind(guildId, now)
+    .all()) as { results: { multiplier: number; expires_at: number; label: string }[] };
+
+  return [
+    ...(personal.results ?? []).map((r) => ({ ...r, scope: "personal" as const })),
+    ...(global.results ?? []).map((r) => ({ ...r, scope: "global" as const, label: r.label })),
+  ];
 }

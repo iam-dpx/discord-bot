@@ -24,6 +24,8 @@ import {
   handleUpgradeModalSubmit,
 } from "./commands/mine";
 import { handleCorpCommand } from "./commands/corp";
+import { handleCrateCommand, handleCrateButtonClick } from "./commands/crate";
+import { handleBoosterCommand, handleBoosterButtonClick } from "./commands/booster";
 
 export interface Env {
   DISCORD_PUBLIC_KEY: string;
@@ -451,6 +453,14 @@ async function handleCommand(env: Env, interaction: DiscordInteraction): Promise
       const result = await handleCorpCommand(interaction, env);
       return jsonResponse(result);
     }
+    case "crate": {
+      const result = await handleCrateCommand(interaction, env);
+      return jsonResponse(result);
+    }
+    case "booster": {
+      const result = await handleBoosterCommand(interaction, env);
+      return jsonResponse(result);
+    }
     default:
       return ephemeralReply("Unknown command.");
   }
@@ -567,6 +577,16 @@ export default {
 
     if (interaction.type === InteractionType.MODAL_SUBMIT && interaction.data?.custom_id?.startsWith("upg_modal_")) {
       const result = await handleUpgradeModalSubmit(interaction, env);
+      return jsonResponse(result);
+    }
+
+    if (interaction.type === InteractionType.MESSAGE_COMPONENT && interaction.data?.custom_id?.startsWith("crate_open_")) {
+      const result = await handleCrateButtonClick(interaction, env);
+      return jsonResponse(result);
+    }
+
+    if (interaction.type === InteractionType.MESSAGE_COMPONENT && interaction.data?.custom_id?.startsWith("boost_use_")) {
+      const result = await handleBoosterButtonClick(interaction, env);
       return jsonResponse(result);
     }
 

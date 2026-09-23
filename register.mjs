@@ -279,6 +279,14 @@ const commands = [
       { name: "leaderboard", description: "Top corporations by bank balance", type: 1 },
     ],
   },
+  {
+    name: "crate",
+    description: "View your crates and open them",
+  },
+  {
+    name: "booster",
+    description: "View your active boosters and unactivated booster inventory",
+  },
 ];
 
 const res = await fetch(`https://discord.com/api/v10/applications/${appId}/commands`, {

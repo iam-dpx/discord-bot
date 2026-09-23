@@ -216,3 +216,20 @@ CREATE TABLE IF NOT EXISTS corp_members (
   PRIMARY KEY (guild_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_corp_members_corp ON corp_members (corp_id);
+
+-- ===== Idle Miner v7: crate/booster reward system =====
+-- player_crates (above) already tracks HOW MANY of each crate type a player
+-- owns — it existed in the schema but nothing wrote to it until now.
+-- This adds the matching table for UNACTIVATED boosters pulled from crates.
+-- player_boosters (above) only ever holds ACTIVE, ticking boosters (it has
+-- a real expires_at). A booster earned from a crate sits here first — as
+-- inventory, doing nothing — until the player taps "Activate" in /booster,
+-- at which point a row gets inserted into player_boosters with a real
+-- expires_at and this row's quantity goes down by 1.
+CREATE TABLE IF NOT EXISTS player_booster_items (
+  guild_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  booster_tier TEXT NOT NULL, -- 'common' | 'rare' | 'epic' | 'legendary' — see BOOSTER_TIERS in src/game/data.ts
+  quantity INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (guild_id, user_id, booster_tier)
+);
