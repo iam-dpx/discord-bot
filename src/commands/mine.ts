@@ -204,14 +204,20 @@ async function handleSell(p: Player, db: any) {
 }
 
 async function handleProfile(p: Player, db: any, name: string) {
-  await savePlayer(db, p);
-  const pets = await getOwnedPets(db, p.guild_id, p.user_id);
+  // savePlayer + the three reads below are all independent of each other at
+  // this point (p isn't mutated further before this), so run them together
+  // instead of one-at-a-time — this alone was the main cause of /profile's
+  // "bot didn't respond" timeouts (too many serial D1 round trips).
+  const [, pets, rate, corp] = await Promise.all([
+    savePlayer(db, p),
+    getOwnedPets(db, p.guild_id, p.user_id),
+    effectiveIncomePerMinute(db, p),
+    getPlayerCorp(db, p.guild_id, p.user_id),
+  ]);
   const petList = pets.length
     ? pets.map((o) => `${PETS.find((d) => d.key === o.pet_key)?.label ?? o.pet_key} (Lv.${o.level})`).join(", ")
     : "None yet — try `/pethunt`";
-  const rate = await effectiveIncomePerMinute(db, p);
   const factoryAgeDays = Math.floor((Date.now() - p.created_at) / 86400000);
-  const corp = await getPlayerCorp(db, p.guild_id, p.user_id);
   const corpValue = corp ? `${corp.name}${corp.role === "leader" ? " (Leader)" : ""}` : "None";
 
   // Field order matches the real bot's /profile exactly: Factory Name,

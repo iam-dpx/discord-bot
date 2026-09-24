@@ -237,17 +237,19 @@ export async function activeBoosterMultiplier(
   type: string
 ): Promise<number> {
   const now = Date.now();
-  const personal = (await db
-    .prepare(
-      `SELECT multiplier FROM player_boosters
-       WHERE guild_id=? AND user_id=? AND booster_type=? AND expires_at > ?`
-    )
-    .bind(guildId, userId, type, now)
-    .all()) as { results: { multiplier: number }[] };
-  const global = (await db
-    .prepare(`SELECT multiplier FROM global_boosters WHERE guild_id=? AND expires_at > ?`)
-    .bind(guildId, now)
-    .all()) as { results: { multiplier: number }[] };
+  const [personal, global] = await Promise.all([
+    db
+      .prepare(
+        `SELECT multiplier FROM player_boosters
+         WHERE guild_id=? AND user_id=? AND booster_type=? AND expires_at > ?`
+      )
+      .bind(guildId, userId, type, now)
+      .all() as Promise<{ results: { multiplier: number }[] }>,
+    db
+      .prepare(`SELECT multiplier FROM global_boosters WHERE guild_id=? AND expires_at > ?`)
+      .bind(guildId, now)
+      .all() as Promise<{ results: { multiplier: number }[] }>,
+  ]);
 
   let mult = 1;
   for (const row of personal.results ?? []) mult *= row.multiplier;
@@ -290,12 +292,17 @@ export function baseIncomePerMinute(counts: Record<string, number>): number {
 // permanent prestige bonus (ASSUMPTION: +10% per prestige level — not
 // confirmed from a screenshot, matches the pattern real bots typically use).
 export async function effectiveIncomePerMinute(db: any, p: Player): Promise<number> {
-  const counts = await getUpgradeCounts(db, p.guild_id, p.user_id);
-  const owned = await getOwnedPets(db, p.guild_id, p.user_id);
+  // These four reads are independent of each other — fire them concurrently
+  // instead of one-at-a-time so this stays well under Discord's 3s reply
+  // window (this function gets called at least once per game command).
+  const [counts, owned, boosterMult, corp] = await Promise.all([
+    getUpgradeCounts(db, p.guild_id, p.user_id),
+    getOwnedPets(db, p.guild_id, p.user_id),
+    activeBoosterMultiplier(db, p.guild_id, p.user_id, "income"),
+    getPlayerCorp(db, p.guild_id, p.user_id),
+  ]);
   const petMult = 1 + petBonusPercent(owned, "income") / 100;
-  const boosterMult = await activeBoosterMultiplier(db, p.guild_id, p.user_id, "income");
   const prestigeMult = 1 + p.prestige * 0.1;
-  const corp = await getPlayerCorp(db, p.guild_id, p.user_id);
   const corpMult = corp ? corpBuffForBank(corp.bank_coins).mult : 1;
   return baseIncomePerMinute(counts) * petMult * boosterMult * prestigeMult * corpMult;
 }
