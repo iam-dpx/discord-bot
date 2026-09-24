@@ -226,10 +226,15 @@ CREATE INDEX IF NOT EXISTS idx_corp_members_corp ON corp_members (corp_id);
 -- inventory, doing nothing — until the player taps "Activate" in /booster,
 -- at which point a row gets inserted into player_boosters with a real
 -- expires_at and this row's quantity goes down by 1.
+-- Each row is ONE distinct (multiplier, duration) combo a player has
+-- rolled from a crate and not yet activated — quantity only goes above 1
+-- if they roll that exact combo again. See rollBooster() in
+-- src/game/data.ts for how multiplier/duration_minutes get picked.
 CREATE TABLE IF NOT EXISTS player_booster_items (
   guild_id TEXT NOT NULL,
   user_id TEXT NOT NULL,
-  booster_tier TEXT NOT NULL, -- 'common' | 'rare' | 'epic' | 'legendary' — see BOOSTER_TIERS in src/game/data.ts
+  multiplier REAL NOT NULL,
+  duration_minutes INTEGER NOT NULL,
   quantity INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY (guild_id, user_id, booster_tier)
+  PRIMARY KEY (guild_id, user_id, multiplier, duration_minutes)
 );

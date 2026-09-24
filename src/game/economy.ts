@@ -14,7 +14,7 @@ import {
   corpBuffForBank,
   CRATE_TYPES,
   CRATE_REWARD_POOLS,
-  BOOSTER_TIERS,
+  rollBooster,
   CLAIM_CRATE_ODDS,
   weightedPick,
 } from "./data";
@@ -433,15 +433,17 @@ export interface CrateOpenResult {
   reason?: string;
   rewardType?: "coins" | "gems" | "booster";
   amount?: number;
-  boosterTier?: string;
+  multiplier?: number;
+  durationMinutes?: number;
 }
 
 // Opens ONE crate of crateKey: decrements inventory by 1, rolls a reward
-// from CRATE_REWARD_POOLS (credits coins/gems directly, or adds a booster
-// item to inventory — never auto-activates it), and always persists the
-// player row (covers any passive income the caller already accrued, even on
-// a failure path). Returns ok:false on a stale/double-clicked button rather
-// than throwing, matching this repo's existing error-handling style.
+// from CRATE_REWARD_POOLS (credits coins/gems directly, or rolls a fresh
+// multiplier/duration via rollBooster and adds it to booster inventory —
+// never auto-activates it), and always persists the player row (covers any
+// passive income the caller already accrued, even on a failure path).
+// Returns ok:false on a stale/double-clicked button rather than throwing,
+// matching this repo's existing error-handling style.
 export async function openCrateForPlayer(db: any, p: Player, crateKey: string): Promise<CrateOpenResult> {
   const row = (await db
     .prepare("SELECT quantity FROM player_crates WHERE guild_id=? AND user_id=? AND crate_type=?")
@@ -475,8 +477,9 @@ export async function openCrateForPlayer(db: any, p: Player, crateKey: string): 
     p.gems += amount;
     result = { ok: true, rewardType: "gems", amount };
   } else {
-    await addBoosterItemToInventory(db, p.guild_id, p.user_id, reward.boosterTier!, 1);
-    result = { ok: true, rewardType: "booster", boosterTier: reward.boosterTier };
+    const rolled = rollBooster(crateKey);
+    await addBoosterItemToInventory(db, p.guild_id, p.user_id, rolled.multiplier, rolled.durationMinutes, 1);
+    result = { ok: true, rewardType: "booster", multiplier: rolled.multiplier, durationMinutes: rolled.durationMinutes };
   }
 
   await savePlayer(db, p);
@@ -485,27 +488,40 @@ export async function openCrateForPlayer(db: any, p: Player, crateKey: string): 
 
 // ----------------------------------------------------- BOOSTER INVENTORY ---
 // Unactivated boosters pulled from crates. Separate from player_boosters,
-// which only ever holds ACTIVE, ticking boosters (real expires_at).
+// which only ever holds ACTIVE, ticking boosters (real expires_at). Each row
+// here is one distinct (multiplier, duration) combo — there's no tier name,
+// the numbers ARE the identity.
 export interface BoosterInventoryRow {
-  booster_tier: string;
+  multiplier: number;
+  duration_minutes: number;
   quantity: number;
 }
 
 export async function getBoosterInventory(db: any, guildId: string, userId: string): Promise<BoosterInventoryRow[]> {
   const rows = (await db
-    .prepare("SELECT booster_tier, quantity FROM player_booster_items WHERE guild_id=? AND user_id=? AND quantity > 0")
+    .prepare(
+      `SELECT multiplier, duration_minutes, quantity FROM player_booster_items
+       WHERE guild_id=? AND user_id=? AND quantity > 0 ORDER BY multiplier DESC, duration_minutes DESC`
+    )
     .bind(guildId, userId)
     .all()) as { results: BoosterInventoryRow[] };
   return rows.results ?? [];
 }
 
-export async function addBoosterItemToInventory(db: any, guildId: string, userId: string, tier: string, qty = 1) {
+export async function addBoosterItemToInventory(
+  db: any,
+  guildId: string,
+  userId: string,
+  multiplier: number,
+  durationMinutes: number,
+  qty = 1
+) {
   await db
     .prepare(
-      `INSERT INTO player_booster_items (guild_id, user_id, booster_tier, quantity) VALUES (?, ?, ?, ?)
-       ON CONFLICT (guild_id, user_id, booster_tier) DO UPDATE SET quantity = quantity + ?`
+      `INSERT INTO player_booster_items (guild_id, user_id, multiplier, duration_minutes, quantity) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (guild_id, user_id, multiplier, duration_minutes) DO UPDATE SET quantity = quantity + ?`
     )
-    .bind(guildId, userId, tier, qty, qty)
+    .bind(guildId, userId, multiplier, durationMinutes, qty, qty)
     .run();
 }
 
@@ -524,31 +540,31 @@ export async function activateBoosterItem(
   db: any,
   guildId: string,
   userId: string,
-  tier: string
+  multiplier: number,
+  durationMinutes: number
 ): Promise<ActivateBoosterResult> {
-  const def = BOOSTER_TIERS.find((b) => b.key === tier);
-  if (!def) return { ok: false, reason: "Unknown booster tier." };
-
   const row = (await db
-    .prepare("SELECT quantity FROM player_booster_items WHERE guild_id=? AND user_id=? AND booster_tier=?")
-    .bind(guildId, userId, tier)
+    .prepare("SELECT quantity FROM player_booster_items WHERE guild_id=? AND user_id=? AND multiplier=? AND duration_minutes=?")
+    .bind(guildId, userId, multiplier, durationMinutes)
     .first()) as { quantity: number } | null;
   if (!row || row.quantity < 1) return { ok: false, reason: "You don't have one of those anymore." };
 
   await db
-    .prepare("UPDATE player_booster_items SET quantity = quantity - 1 WHERE guild_id=? AND user_id=? AND booster_tier=?")
-    .bind(guildId, userId, tier)
+    .prepare(
+      "UPDATE player_booster_items SET quantity = quantity - 1 WHERE guild_id=? AND user_id=? AND multiplier=? AND duration_minutes=?"
+    )
+    .bind(guildId, userId, multiplier, durationMinutes)
     .run();
 
-  const expiresAt = Date.now() + def.durationMinutes * 60000;
+  const expiresAt = Date.now() + durationMinutes * 60000;
   await db
     .prepare(
       "INSERT INTO player_boosters (guild_id, user_id, booster_type, multiplier, expires_at, source) VALUES (?, ?, 'income', ?, ?, 'crate')"
     )
-    .bind(guildId, userId, def.multiplier, expiresAt)
+    .bind(guildId, userId, multiplier, expiresAt)
     .run();
 
-  return { ok: true, multiplier: def.multiplier, durationMinutes: def.durationMinutes };
+  return { ok: true, multiplier, durationMinutes };
 }
 
 // -------------------------------------------------------- ACTIVE BOOSTERS ---

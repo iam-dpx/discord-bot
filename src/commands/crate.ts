@@ -3,7 +3,7 @@
 // and handleCrateButtonClick(interaction, env) for MESSAGE_COMPONENT
 // interactions whose custom_id starts with "crate_open_".
 
-import { CRATE_TYPES, icon } from "../game/data";
+import { CRATE_TYPES, icon, formatMinutes } from "../game/data";
 import {
   getOrCreatePlayer,
   savePlayer,
@@ -116,7 +116,9 @@ export async function handleCrateButtonClick(interaction: any, env: { DB: any })
     summary = `You opened a **${crateDef?.label}** and got **+${result.amount} gems**!`;
     thumb = icon("gem");
   } else {
-    summary = `You opened a **${crateDef?.label}** and got a **booster item**! Check \`/booster\` to activate it.`;
+    summary = `You opened a **${crateDef?.label}** and got a **x${result.multiplier} booster (${formatMinutes(
+      result.durationMinutes ?? 0
+    )})**! Check \`/booster\` to activate it.`;
     thumb = icon("booster_gm");
   }
 

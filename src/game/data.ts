@@ -127,59 +127,81 @@ export const REBIRTH_MIN_LEVEL = 50; // player level required to rebirth
 export const PRESTIGE_EVERY_REBIRTHS = 25;
 
 // ------------------------------------------------------ CRATES & BOOSTERS ---
-// Booster tiers reuse the same rarity names as CRATE_TYPES above, so the
-// whole chain stays consistent: crate rarity -> booster tier -> multiplier/
-// duration. Every booster granted through this system is booster_type
-// 'income' — the only type activeBoosterMultiplier() in economy.ts reads.
-// ASSUMPTION: numbers are a fresh design (no reference screenshot for this
-// feature) — tune later if needed.
-export interface BoosterTierDef {
-  key: string;
-  label: string;
-  multiplier: number;
-  durationMinutes: number;
-  icon: string;
+// Boosters are NOT named tiers — a booster item is just two independently
+// rolled numbers (multiplier, duration), so a common crate *can* occasionally
+// roll something a legendary crate usually gives, just far less often, since
+// each rarity draws from a different range. Every booster granted through
+// this system is booster_type 'income' — the only type
+// activeBoosterMultiplier() in economy.ts reads.
+// ASSUMPTION: ranges are a fresh design (no reference for this feature) —
+// tune later if needed.
+export interface BoosterRollRange {
+  multiplierMin: number;
+  multiplierMax: number;
+  durationMinMinutes: number;
+  durationMaxMinutes: number;
 }
 
-export const BOOSTER_TIERS: BoosterTierDef[] = [
-  { key: "common", label: "Income Booster I", multiplier: 1.5, durationMinutes: 30, icon: icon("booster_gm") },
-  { key: "rare", label: "Income Booster II", multiplier: 2, durationMinutes: 60, icon: icon("booster_gm") },
-  { key: "epic", label: "Income Booster III", multiplier: 3, durationMinutes: 120, icon: icon("booster_gm") },
-  { key: "legendary", label: "Income Booster IV", multiplier: 5, durationMinutes: 240, icon: icon("booster_global") },
-];
+export const BOOSTER_ROLL_RANGES: Record<string, BoosterRollRange> = {
+  common: { multiplierMin: 1.2, multiplierMax: 2, durationMinMinutes: 15, durationMaxMinutes: 60 },
+  rare: { multiplierMin: 1.5, multiplierMax: 3, durationMinMinutes: 30, durationMaxMinutes: 180 },
+  epic: { multiplierMin: 2, multiplierMax: 4, durationMinMinutes: 60, durationMaxMinutes: 360 },
+  legendary: { multiplierMin: 3, multiplierMax: 6, durationMinMinutes: 120, durationMaxMinutes: 1440 }, // up to 1 day
+};
+
+// Rolls one booster from a crate rarity's range — multiplier rounded to the
+// nearest 0.1, duration rounded to the nearest 5 minutes, purely so the
+// numbers look clean in the embed (e.g. "x2.3 booster — 1h 45m").
+export function rollBooster(crateRarity: string): { multiplier: number; durationMinutes: number } {
+  const r = BOOSTER_ROLL_RANGES[crateRarity] ?? BOOSTER_ROLL_RANGES.common;
+  const multiplier = Math.round((r.multiplierMin + Math.random() * (r.multiplierMax - r.multiplierMin)) * 10) / 10;
+  const rawDuration = r.durationMinMinutes + Math.random() * (r.durationMaxMinutes - r.durationMinMinutes);
+  const durationMinutes = Math.max(5, Math.round(rawDuration / 5) * 5);
+  return { multiplier, durationMinutes };
+}
+
+// Formats a flat minute count as "Xh Ym" (or just "Ym" under an hour) —
+// used both for booster durations and for "time remaining" once converted
+// to minutes.
+export function formatMinutes(totalMinutes: number): string {
+  const min = Math.max(0, Math.round(totalMinutes));
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
 
 // What opening a crate of a given rarity can drop. One entry is picked by
-// weight — "coins"/"gems" credit the player directly, "booster" adds ONE
-// item of that tier to the player's booster inventory (player_booster_items)
-// rather than activating it immediately.
+// weight — "coins"/"gems" credit the player directly, "booster" rolls a
+// fresh multiplier/duration (via rollBooster, using this same rarity) and
+// adds it to the player's booster inventory rather than activating it
+// immediately.
 export interface CrateRewardOption {
   type: "coins" | "gems" | "booster";
   weight: number;
   min?: number; // coins/gems only
   max?: number; // coins/gems only
-  boosterTier?: string; // booster only — a BOOSTER_TIERS key
 }
 
 export const CRATE_REWARD_POOLS: Record<string, CrateRewardOption[]> = {
   common: [
     { type: "coins", weight: 55, min: 100, max: 300 },
     { type: "gems", weight: 15, min: 1, max: 2 },
-    { type: "booster", weight: 30, boosterTier: "common" },
+    { type: "booster", weight: 30 },
   ],
   rare: [
     { type: "coins", weight: 45, min: 400, max: 900 },
     { type: "gems", weight: 20, min: 2, max: 4 },
-    { type: "booster", weight: 35, boosterTier: "rare" },
+    { type: "booster", weight: 35 },
   ],
   epic: [
     { type: "coins", weight: 35, min: 1000, max: 2200 },
     { type: "gems", weight: 25, min: 4, max: 8 },
-    { type: "booster", weight: 40, boosterTier: "epic" },
+    { type: "booster", weight: 40 },
   ],
   legendary: [
     { type: "coins", weight: 25, min: 3000, max: 6000 },
     { type: "gems", weight: 30, min: 8, max: 15 },
-    { type: "booster", weight: 45, boosterTier: "legendary" },
+    { type: "booster", weight: 45 },
   ],
 };
 

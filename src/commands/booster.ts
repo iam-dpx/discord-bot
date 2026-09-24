@@ -1,10 +1,13 @@
 // /booster — view active boosters + your unactivated booster inventory,
 // and activate one via buttons.
+// Boosters have no tier/name — each is just a rolled (multiplier, duration)
+// pair, so the panel below lists whatever the player actually has, not a
+// fixed set of categories.
 // Call handleBoosterCommand(interaction, env) from the slash-command router,
 // and handleBoosterButtonClick(interaction, env) for MESSAGE_COMPONENT
 // interactions whose custom_id starts with "boost_use_".
 
-import { BOOSTER_TIERS, icon } from "../game/data";
+import { icon, formatMinutes } from "../game/data";
 import {
   getOrCreatePlayer,
   savePlayer,
@@ -17,57 +20,52 @@ import {
 
 const COLOR = 0x2ecc71;
 const COLOR_WARN = 0xe74c3c;
+const MAX_BUTTONS = 20; // Discord caps at 5 rows x 5 buttons
 
 function reply(content: any) {
   return { type: 4, data: content };
 }
 
-function formatDuration(ms: number): string {
+function formatRemaining(ms: number): string {
   if (ms <= 0) return "expired";
-  const totalMin = Math.ceil(ms / 60000);
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  return formatMinutes(ms / 60000);
 }
 
 // Builds the booster panel: an "Active Boosters" summary (personal +
-// server-wide, with time remaining) plus one field per tier showing how
-// many unactivated items are in inventory, with an Activate button per
-// owned tier. Same stateless custom_id pattern as crate.ts.
+// server-wide, with time remaining) plus a plain list of every distinct
+// (multiplier, duration) combo currently in inventory, with an Activate
+// button per combo (capped at MAX_BUTTONS — extras just don't get a button
+// this time around; re-run /booster after activating some to see more).
 async function buildBoosterPanel(p: Player, db: any) {
   const now = Date.now();
   const active = await getActiveBoosters(db, p.guild_id, p.user_id);
   const inventory = await getBoosterInventory(db, p.guild_id, p.user_id);
-  const qtyByTier = new Map(inventory.map((r) => [r.booster_tier, r.quantity]));
 
   const activeLines = active.length
     ? active.map((b) =>
         b.scope === "global"
-          ? `**${b.label ?? "Event Booster"}** (server-wide) — x${b.multiplier} income, **${formatDuration(b.expires_at - now)}** left`
-          : `**Income Booster** — x${b.multiplier}, **${formatDuration(b.expires_at - now)}** left`
+          ? `**${b.label ?? "Event Booster"}** (server-wide) — x${b.multiplier} income, **${formatRemaining(b.expires_at - now)}** left`
+          : `**x${b.multiplier} booster** — **${formatRemaining(b.expires_at - now)}** left`
       )
     : ["No active boosters right now."];
 
-  const inventoryFields = BOOSTER_TIERS.map((t) => ({
-    name: t.label,
-    value: `Owned: **${qtyByTier.get(t.key) ?? 0}** (x${t.multiplier} income for ${t.durationMinutes}min when activated)`,
-    inline: true,
-  }));
+  const inventoryLines = inventory.length
+    ? inventory.map((b) => `**x${b.multiplier} booster** — ${formatMinutes(b.duration_minutes)} (qty: **${b.quantity}**)`)
+    : ["No unactivated boosters — open some crates with `/crate`."];
 
-  const ownedTiers = BOOSTER_TIERS.filter((t) => (qtyByTier.get(t.key) ?? 0) > 0);
-  const components = ownedTiers.length
-    ? [
-        {
-          type: 1,
-          components: ownedTiers.slice(0, 5).map((t) => ({
-            type: 2,
-            style: 1,
-            label: `Activate ${t.label} (${qtyByTier.get(t.key)})`,
-            custom_id: `boost_use_${p.guild_id}_${p.user_id}_${t.key}`,
-          })),
-        },
-      ]
-    : [];
+  const shown = inventory.slice(0, MAX_BUTTONS);
+  const components: any[] = [];
+  for (let i = 0; i < shown.length; i += 5) {
+    components.push({
+      type: 1,
+      components: shown.slice(i, i + 5).map((b) => ({
+        type: 2,
+        style: 1,
+        label: `Activate x${b.multiplier} (${formatMinutes(b.duration_minutes)})`,
+        custom_id: `boost_use_${p.guild_id}_${p.user_id}_${b.multiplier}_${b.duration_minutes}`,
+      })),
+    });
+  }
 
   return {
     embeds: [
@@ -75,8 +73,11 @@ async function buildBoosterPanel(p: Player, db: any) {
         title: "Boosters",
         color: COLOR,
         thumbnail: { url: icon("booster_gm") },
-        description: ownedTiers.length ? "Tap a button below to activate one." : undefined,
-        fields: [{ name: "Active Boosters", value: activeLines.join("\n"), inline: false }, ...inventoryFields],
+        description: inventory.length ? "Tap a button below to activate one." : undefined,
+        fields: [
+          { name: "Active Boosters", value: activeLines.join("\n"), inline: false },
+          { name: "Booster Inventory", value: inventoryLines.join("\n"), inline: false },
+        ],
       },
     ],
     components,
@@ -98,11 +99,13 @@ export async function handleBoosterCommand(interaction: any, env: { DB: any }) {
 export async function handleBoosterButtonClick(interaction: any, env: { DB: any }) {
   const db = env.DB;
   const customId: string = interaction.data?.custom_id ?? "";
-  const match = customId.match(/^boost_use_(\d+)_(\d+)_(common|rare|epic|legendary)$/);
+  const match = customId.match(/^boost_use_(\d+)_(\d+)_([\d.]+)_(\d+)$/);
   if (!match) {
     return { type: 4, data: { content: "That booster button isn't valid anymore — run `/booster` again.", flags: 64 } };
   }
-  const [, guildId, ownerId, tier] = match;
+  const [, guildId, ownerId, multiplierStr, durationStr] = match;
+  const multiplier = parseFloat(multiplierStr);
+  const durationMinutes = parseInt(durationStr, 10);
   const clickerId = interaction.member?.user?.id ?? interaction.user?.id;
 
   if (clickerId !== ownerId) {
@@ -119,11 +122,10 @@ export async function handleBoosterButtonClick(interaction: any, env: { DB: any 
   player = await accruePassiveIncome(db, player);
   await savePlayer(db, player);
 
-  const result = await activateBoosterItem(db, guildId, ownerId, tier);
-  const def = BOOSTER_TIERS.find((t) => t.key === tier);
+  const result = await activateBoosterItem(db, guildId, ownerId, multiplier, durationMinutes);
 
   const summary = result.ok
-    ? `Activated **${def?.label}** — **x${result.multiplier}** income for **${result.durationMinutes} minutes**!`
+    ? `Activated **x${result.multiplier} booster** for **${formatMinutes(result.durationMinutes ?? 0)}**!`
     : result.reason ?? "Couldn't activate that booster.";
 
   const panel = await buildBoosterPanel(player, db);
@@ -136,7 +138,7 @@ export async function handleBoosterButtonClick(interaction: any, env: { DB: any 
           title: result.ok ? "Booster Activated" : "Nothing to activate",
           description: summary,
           color: result.ok ? COLOR : COLOR_WARN,
-          thumbnail: { url: def?.icon ?? icon("booster_gm") },
+          thumbnail: { url: icon("booster_gm") },
         },
         ...panel.embeds,
       ],
