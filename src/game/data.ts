@@ -5,6 +5,16 @@ export const ICON_BASE =
   "https://raw.githubusercontent.com/iam-dpx/discord-bot/main/assets/icons";
 export const icon = (name: string) => `${ICON_BASE}/${name}.png`;
 
+// Formats a whole-number currency amount with "." as the thousands
+// separator and a trailing ",-" (no-cents marker) — e.g. 1000000 becomes
+// "1.000.000,-". Used for every coins/gems/shards/materials display.
+export function fmt(n: number): string {
+  const rounded = Math.round(n);
+  const sign = rounded < 0 ? "-" : "";
+  const grouped = Math.abs(rounded).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  return `${sign}${grouped},-`;
+}
+
 export interface UpgradeType {
   key: string;
   label: string;

@@ -17,6 +17,7 @@ import {
   rollBooster,
   CLAIM_CRATE_ODDS,
   weightedPick,
+  fmt,
 } from "./data";
 
 export interface Player {
@@ -176,12 +177,12 @@ export async function buyUpgradeQty(
 
   for (let i = 0; i < qty; i++) {
     if (totalOwned >= maxSlots) {
-      stoppedReason = `Hit your max upgrade slots (${maxSlots}).`;
+      stoppedReason = `Hit your max upgrade slots (${fmt(maxSlots)}).`;
       break;
     }
     const cost = nextUpgradeCost(def.baseCost, counts[upgradeKey] ?? 0);
     if (p.coins < cost) {
-      stoppedReason = `Ran out of coins (next one costs $${cost}).`;
+      stoppedReason = `Ran out of coins (next one costs ${fmt(cost)}).`;
       break;
     }
     p.coins -= cost;
@@ -265,6 +266,7 @@ export interface CorpRow {
   leader_id: string;
   bank_coins: number;
   bank_gems: number;
+  bank_materials: number;
   created_at: number;
   role: string;
 }

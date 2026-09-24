@@ -21,7 +21,9 @@ import {
   MINE_COOLDOWN_MS,
   XP_PER_LEVEL,
   icon,
+  fmt,
 } from "../game/data";
+import { emojiPrefix } from "../game/emoji";
 import {
   getOrCreatePlayer,
   savePlayer,
@@ -46,6 +48,16 @@ import {
 
 const COLOR = 0x2ecc71;
 const COLOR_WARN = 0xe74c3c;
+
+// UPGRADE_TYPES keys ("size"/"miner"/"workers") don't match the icon
+// filenames used for their emoji (they reuse factory_icon/miner_icon/
+// pet_golem placeholders — see UPGRADE_TYPES in data.ts) — this maps each
+// upgrade key to the actual uploaded emoji name.
+const UPGRADE_EMOJI_KEY: Record<string, string> = {
+  size: "factory_icon",
+  miner: "miner_icon",
+  workers: "pet_golem",
+};
 
 // Server nickname > global display name > username, matching what
 // actually shows in Discord's UI for that member.
@@ -170,7 +182,7 @@ async function handleCheck(p: Player, db: any) {
     const rate = await effectiveIncomePerMinute(db, p);
     return simpleEmbed(
       "Still cooling down",
-      `You can mine again in **${secs}s**.\nMeanwhile, you're earning **${Math.floor(rate)}/min** passively — balance: **${p.coins}**.`,
+      `You can mine again in **${secs}s**.\nMeanwhile, you're earning **${fmt(Math.floor(rate))}/min** passively — balance: **${fmt(p.coins)}**.`,
       { color: COLOR_WARN }
     );
   }
@@ -197,7 +209,7 @@ async function handleSell(p: Player, db: any) {
   await savePlayer(db, p);
   return simpleEmbed(
     "Materials aren't sold directly",
-    `You have **${p.materials}** materials banked from mining — these will feed into crafting/corporation features later. ` +
+    `You have **${fmt(p.materials)}** materials banked from mining — deposit them into your corporation's bank with \`/corp deposit asset:materials\`. ` +
       `Your coin balance grows automatically from your $/min income — check \`/profile\`.`,
     { thumbnail: icon("shard") }
   );
@@ -215,13 +227,13 @@ async function handleProfile(p: Player, db: any, name: string) {
     getPlayerCorp(db, p.guild_id, p.user_id),
   ]);
   const petList = pets.length
-    ? pets.map((o) => `${PETS.find((d) => d.key === o.pet_key)?.label ?? o.pet_key} (Lv.${o.level})`).join(", ")
+    ? pets.map((o) => `${emojiPrefix(`pet_${o.pet_key}`)}${PETS.find((d) => d.key === o.pet_key)?.label ?? o.pet_key} (Lv.${o.level})`).join(", ")
     : "None yet — try `/pethunt`";
   const factoryAgeDays = Math.floor((Date.now() - p.created_at) / 86400000);
   const corpValue = corp ? `${corp.name}${corp.role === "leader" ? " (Leader)" : ""}` : "None";
 
   // Field order matches the real bot's /profile exactly: Factory Name,
-  // Location, Corporation, Balance, Income/min, Prestige, Level, Factory Age.
+  // Location, Corporation, Balance, Income per minute, Prestige, Level, Factory Age.
   // Location is still a placeholder until dimensions/locations are built.
   return reply({
     embeds: [
@@ -233,15 +245,15 @@ async function handleProfile(p: Player, db: any, name: string) {
           { name: "Factory Name", value: `${name}'s Factory`, inline: true },
           { name: "Location", value: "Garage", inline: true },
           { name: "Corporation", value: corpValue, inline: true },
-          { name: "Balance", value: `$${p.coins}`, inline: true },
-          { name: "Income (per minute)", value: `$${Math.floor(rate)}`, inline: true },
+          { name: "Balance", value: fmt(p.coins), inline: true },
+          { name: "Income (per minute)", value: fmt(Math.floor(rate)), inline: true },
           { name: "Prestige", value: `${p.prestige}`, inline: true },
           { name: "Level", value: `${p.level}`, inline: true },
           { name: "Factory Age", value: `${factoryAgeDays} Days`, inline: true },
-          { name: "Gems", value: `${p.gems}`, inline: true },
-          { name: "Shards", value: `${p.shards}`, inline: true },
-          { name: "Pet Shards", value: `${p.pet_shards}`, inline: true },
-          { name: "Materials", value: `${p.materials}`, inline: true },
+          { name: "Gems", value: fmt(p.gems), inline: true },
+          { name: "Shards", value: fmt(p.shards), inline: true },
+          { name: "Pet Shards", value: fmt(p.pet_shards), inline: true },
+          { name: "Materials", value: fmt(p.materials), inline: true },
           { name: "Pets", value: petList, inline: false },
         ],
       },
@@ -264,11 +276,14 @@ async function buildUpgradePanel(p: Player, db: any) {
     embeds: [
       {
         title: "Upgrades",
-        description: `Slots used: **${totalOwned}/${slots}**\nTap an upgrade to buy it — you'll be asked how many.`,
+        description:
+          `**Max Slots:** ${fmt(slots)} — shared across Size/Miner/Workers (+10 per Prestige)\n` +
+          `**Used:** ${fmt(totalOwned)}/${fmt(slots)}\n` +
+          `Tap an upgrade to buy it — you'll be asked how many.`,
         color: COLOR,
         fields: UPGRADE_TYPES.map((u) => ({
-          name: u.label,
-          value: `Owned: **${counts[u.key] ?? 0}** | +$${u.profitPerMin}/min each\nNext price: **$${nextUpgradeCost(u.baseCost, counts[u.key] ?? 0)}**`,
+          name: `${emojiPrefix(UPGRADE_EMOJI_KEY[u.key] ?? u.key)}${u.label}`,
+          value: `Owned: **${fmt(counts[u.key] ?? 0)}** (shared cap: **${fmt(slots)}**) | +${fmt(u.profitPerMin)}/min each\nNext price: **${fmt(nextUpgradeCost(u.baseCost, counts[u.key] ?? 0))}**`,
           inline: true,
         })),
       },
@@ -279,7 +294,7 @@ async function buildUpgradePanel(p: Player, db: any) {
         components: UPGRADE_TYPES.map((u) => ({
           type: 2,
           style: 1,
-          label: `${u.label} — $${nextUpgradeCost(u.baseCost, counts[u.key] ?? 0)}`,
+          label: `${u.label} — ${fmt(nextUpgradeCost(u.baseCost, counts[u.key] ?? 0))}`,
           custom_id: `upg_pick_${u.key}`,
         })),
       },
@@ -356,7 +371,7 @@ export async function handleUpgradeModalSubmit(interaction: any, env: { DB: any 
   const panel = await buildUpgradePanel(player, db);
   const summary =
     result.purchased > 0
-      ? `Bought **${result.purchased}x ${result.def?.label ?? key}** for **$${result.totalCost}**.${result.reason ? ` (${result.reason})` : ""}`
+      ? `Bought **${result.purchased}x ${result.def?.label ?? key}** for **${fmt(result.totalCost)}**.${result.reason ? ` (${result.reason})` : ""}`
       : `Couldn't buy any — ${result.reason ?? "something went wrong."}`;
 
   return {
@@ -394,18 +409,18 @@ async function handlePet(p: Player, db: any, action: string, options: any[]) {
         // duplicate -> convert to pet shards (spent via /petupgrade) instead of a second copy
         p.pet_shards += HUNT_PET_SHARD_REWARD;
         await savePlayer(db, p);
-        return simpleEmbed("Duplicate pet!", `You found another **${chosen.label}** — converted to **${HUNT_PET_SHARD_REWARD} pet shards** instead.`, { thumbnail: icon("pet_shard") });
+        return simpleEmbed("Duplicate pet!", `You found another **${emojiPrefix(`pet_${chosen.key}`)}${chosen.label}** — converted to **${fmt(HUNT_PET_SHARD_REWARD)} pet shards** instead.`, { thumbnail: icon("pet_shard") });
       }
       await db
         .prepare("INSERT INTO player_pets (guild_id, user_id, pet_key, level, obtained_at) VALUES (?, ?, ?, 1, ?)")
         .bind(p.guild_id, p.user_id, chosen.key, now)
         .run();
       await savePlayer(db, p);
-      return simpleEmbed("New pet!", `You found a **${chosen.label}**! Check \`/profile\` to see it.`, { thumbnail: chosen.icon });
+      return simpleEmbed("New pet!", `You found a **${emojiPrefix(`pet_${chosen.key}`)}${chosen.label}**! Check \`/profile\` to see it.`, { thumbnail: chosen.icon });
     } else {
       p.shards += HUNT_SHARD_REWARD;
       await savePlayer(db, p);
-      return simpleEmbed("No pet this time", `Found **${HUNT_SHARD_REWARD} shards** instead. Try again later!`, { thumbnail: icon("shard") });
+      return simpleEmbed("No pet this time", `Found **${fmt(HUNT_SHARD_REWARD)} shards** instead. Try again later!`, { thumbnail: icon("shard") });
     }
   }
 
@@ -417,7 +432,7 @@ async function handlePet(p: Player, db: any, action: string, options: any[]) {
           title: "Available Pets",
           color: COLOR,
           fields: PETS.map((pet) => ({
-            name: pet.label,
+            name: `${emojiPrefix(`pet_${pet.key}`)}${pet.label}`,
             value: `Perk: ${pet.perk} +${pet.baseValue}% (+${pet.perLevel}%/level)`,
             inline: true,
           })),
@@ -432,7 +447,7 @@ async function handlePet(p: Player, db: any, action: string, options: any[]) {
     if (!def) { await savePlayer(db, p); return simpleEmbed("Unknown pet", "Check `/petlist` for valid pet names.", { color: COLOR_WARN }); }
     if (p.pet_shards < SHARDS_PER_PET_LEVEL) {
       await savePlayer(db, p);
-      return simpleEmbed("Not enough pet shards", `You need **${SHARDS_PER_PET_LEVEL} pet shards** to level up a pet. You have **${p.pet_shards}**. Hunt duplicates with \`/pethunt\` to earn more.`, { color: COLOR_WARN, thumbnail: icon("pet_shard") });
+      return simpleEmbed("Not enough pet shards", `You need **${fmt(SHARDS_PER_PET_LEVEL)} pet shards** to level up a pet. You have **${fmt(p.pet_shards)}**. Hunt duplicates with \`/pethunt\` to earn more.`, { color: COLOR_WARN, thumbnail: icon("pet_shard") });
     }
     const owned = (await db
       .prepare("SELECT id, level FROM player_pets WHERE guild_id=? AND user_id=? AND pet_key=?")
@@ -443,7 +458,7 @@ async function handlePet(p: Player, db: any, action: string, options: any[]) {
     p.pet_shards -= SHARDS_PER_PET_LEVEL;
     await db.prepare("UPDATE player_pets SET level = level + 1 WHERE id = ?").bind(owned.id).run();
     await savePlayer(db, p);
-    return simpleEmbed("Pet leveled up!", `Your **${def.label}** is now level **${owned.level + 1}**.`, { thumbnail: def.icon });
+    return simpleEmbed("Pet leveled up!", `Your **${emojiPrefix(`pet_${def.key}`)}${def.label}** is now level **${owned.level + 1}**.`, { thumbnail: def.icon });
   }
 
   await savePlayer(db, p);
@@ -459,7 +474,7 @@ async function handleLeaderboard(p: Player, db: any) {
     .all()) as { results: { user_id: string; coins: number }[] };
 
   const rows = top.results ?? [];
-  const lines = rows.map((r, i) => `#${i + 1}: <@${r.user_id}> - $${r.coins}`);
+  const lines = rows.map((r, i) => `#${i + 1}: <@${r.user_id}> - ${fmt(r.coins)}`);
 
   const callerRank = (await db
     .prepare("SELECT COUNT(*) as rank FROM players WHERE guild_id=? AND coins > ?")
@@ -467,7 +482,7 @@ async function handleLeaderboard(p: Player, db: any) {
     .first()) as { rank: number } | null;
   const myRank = (callerRank?.rank ?? 0) + 1;
   if (!rows.find((r) => r.user_id === p.user_id)) {
-    lines.push(`—`, `#${myRank}: You - $${p.coins}`);
+    lines.push(`—`, `#${myRank}: You - ${fmt(p.coins)}`);
   }
 
   return simpleEmbed("Balance Leaderboard", lines.join("\n") || "No one has any coins yet.", { thumbnail: icon("coin") });
@@ -479,7 +494,7 @@ async function handlePrestige(p: Player, db: any) {
     await savePlayer(db, p);
     return simpleEmbed(
       "Not ready to prestige",
-      `You need at least $${PRESTIGE_MIN_BALANCE} balance before you can prestige. You have $${p.coins}. ` +
+      `You need at least ${fmt(PRESTIGE_MIN_BALANCE)} balance before you can prestige. You have ${fmt(p.coins)}. ` +
         `(This requirement is an assumption — the real bot's exact threshold isn't confirmed yet.)`,
       { color: COLOR_WARN }
     );
@@ -494,7 +509,7 @@ async function handlePrestige(p: Player, db: any) {
     p.prestige === 15 ? "\nUnlocked: Leaderboard Quick View! (not built yet)" : "";
   return simpleEmbed(
     "Prestige complete!",
-    `You reset your progress and earned **${gemsEarned} gems**.\nPrestige: **${p.prestige}** | Max upgrade slots: **${p.prestige * 10 + 410}**` +
+    `You reset your progress and earned **${fmt(gemsEarned)} gems**.\nPrestige: **${p.prestige}** | Max upgrade slots: **${p.prestige * 10 + 410}**` +
       milestoneNote,
     { thumbnail: icon("rebirth_icon") }
   );
@@ -514,7 +529,7 @@ async function handleCoinflip(p: Player, db: any, options: any[]) {
   await savePlayer(db, p);
   return simpleEmbed(
     won ? "You won!" : "You lost",
-    `Landed on **${result}**. ${won ? `+${amount}` : `-${amount}`} coins. Balance: **${p.coins}**.`,
+    `Landed on **${result}**. ${won ? `+${fmt(amount)}` : `-${fmt(amount)}`} coins. Balance: **${fmt(p.coins)}**.`,
     { color: won ? COLOR : COLOR_WARN }
   );
 }
@@ -525,7 +540,7 @@ async function handleSlots(p: Player, db: any, options: any[]) {
     await savePlayer(db, p);
     return simpleEmbed("Invalid bet", "Enter an amount you actually have.", { color: COLOR_WARN });
   }
-  const symbols = ["GEM", "STAR", "BELL", "CLOVER"]; // plain text — no emoji per project preference
+  const symbols = ["GEM", "STAR", "BELL", "CLOVER"]; // plain text symbols — no dedicated icon art for these yet
   const spin = [0, 1, 2].map(() => symbols[Math.floor(Math.random() * symbols.length)]);
   const allMatch = spin[0] === spin[1] && spin[1] === spin[2];
   const twoMatch = spin[0] === spin[1] || spin[1] === spin[2] || spin[0] === spin[2];
@@ -538,7 +553,7 @@ async function handleSlots(p: Player, db: any, options: any[]) {
   await savePlayer(db, p);
   return simpleEmbed(
     winnings > 0 ? "Winner!" : "No luck",
-    `[ ${spin.join(" | ")} ]\n${winnings >= 0 ? `+${winnings}` : winnings} coins. Balance: **${p.coins}**.`,
+    `[ ${spin.join(" | ")} ]\n${winnings >= 0 ? `+${fmt(winnings)}` : `-${fmt(-winnings)}`} coins. Balance: **${fmt(p.coins)}**.`,
     { color: winnings > 0 ? COLOR : COLOR_WARN }
   );
 }
@@ -571,8 +586,8 @@ async function handleClaim(p: Player, db: any, kind: "daily" | "weekly" | "month
       {
         title: `${kind[0].toUpperCase()}${kind.slice(1)} reward claimed!`,
         description:
-          `+${rewards[kind]} coins${gemReward[kind] ? ` and +${gemReward[kind]} gems` : ""}.\n` +
-          `You also got a **${crateDef.label}**! Open it with \`/crate\`.`,
+          `+${fmt(rewards[kind])} coins${gemReward[kind] ? ` and +${fmt(gemReward[kind])} gems` : ""}.\n` +
+          `You also got a **${emojiPrefix(`crate_${crateDef.key}`)}${crateDef.label}**! Open it with \`/crate\`.`,
         color: COLOR,
         thumbnail: { url: crateDef.icon },
       },
@@ -642,7 +657,7 @@ async function handleGmBoost(interaction: any, db: any, options: any[], ownerId:
 // gives, negative takes away. Leave the `user` option blank to target
 // yourself (self-gift). Values are clamped at 0 — this can't push anyone
 // negative.
-const ADJUST_ACTIONS = ["adjustcoins", "adjustgems", "adjustshards", "adjustpetshards", "adjustxp", "setlevel"];
+const ADJUST_ACTIONS = ["adjustcoins", "adjustgems", "adjustshards", "adjustpetshards", "adjustxp", "setlevel", "resetcooldown"];
 const ADJUST_FIELD: Record<string, "coins" | "gems" | "shards" | "pet_shards"> = {
   adjustcoins: "coins",
   adjustgems: "gems",
@@ -655,6 +670,13 @@ const ADJUST_LABEL: Record<string, string> = {
   adjustshards: "Shards",
   adjustpetshards: "Pet Shards",
 };
+const RESET_COOLDOWN_FIELDS: Record<string, string> = {
+  daily: "last_daily_at",
+  weekly: "last_weekly_at",
+  monthly: "last_monthly_at",
+  hunt: "last_hunt_at",
+  mine: "last_mine_click_at",
+};
 
 async function handleAdminAdjust(interaction: any, db: any, action: string, options: any[], ownerId: string) {
   const callerId = interaction.member?.user?.id ?? interaction.user?.id;
@@ -663,13 +685,32 @@ async function handleAdminAdjust(interaction: any, db: any, action: string, opti
   }
   const guildId = interaction.guild_id;
   const targetId = optVal(options, "user") ?? callerId; // leave user blank to target yourself
-  const amount = Number(optVal(options, "amount") ?? 0);
 
   let player = await getOrCreatePlayer(db, guildId, targetId);
   player = await accruePassiveIncome(db, player);
 
+  if (action === "resetcooldown") {
+    const which = optVal(options, "which") ?? "all";
+    const keys = which === "all" ? Object.keys(RESET_COOLDOWN_FIELDS) : [which];
+    const reset: string[] = [];
+    for (const key of keys) {
+      const field = RESET_COOLDOWN_FIELDS[key];
+      if (!field) continue;
+      (player as any)[field] = 0;
+      reset.push(key);
+    }
+    await savePlayer(db, player);
+    const description = reset.length
+      ? `<@${targetId}>'s **${reset.join(", ")}** cooldown${reset.length > 1 ? "s are" : " is"} reset — ready to claim/hunt/mine again right away.`
+      : `Nothing to reset — pick a valid "which" option (daily/weekly/monthly/hunt/mine/all).`;
+    return reply({
+      embeds: [{ title: "Admin Adjustment", description, color: reset.length ? COLOR : COLOR_WARN, thumbnail: { url: icon("booster_gm") } }],
+    });
+  }
+
+  const amount = Number(optVal(options, "amount") ?? 0);
   let description: string;
-  const signed = amount >= 0 ? `+${amount}` : `${amount}`;
+  const signed = amount >= 0 ? `+${fmt(amount)}` : `-${fmt(-amount)}`;
 
   if (action === "setlevel") {
     const targetLevel = Math.max(1, Math.floor(amount));
@@ -679,11 +720,11 @@ async function handleAdminAdjust(interaction: any, db: any, action: string, opti
   } else if (action === "adjustxp") {
     player.xp = Math.max(0, player.xp + amount);
     player.level = levelFromXp(player.xp);
-    description = `<@${targetId}>'s XP adjusted by **${signed}** — now **${player.xp} XP** (Level **${player.level}**).`;
+    description = `<@${targetId}>'s XP adjusted by **${signed}** — now **${fmt(player.xp)} XP** (Level **${player.level}**).`;
   } else {
     const field = ADJUST_FIELD[action];
     (player as any)[field] = Math.max(0, (player as any)[field] + amount);
-    description = `<@${targetId}>'s **${ADJUST_LABEL[action]}** adjusted by **${signed}** — now **${(player as any)[field]}**.`;
+    description = `<@${targetId}>'s **${ADJUST_LABEL[action]}** adjusted by **${signed}** — now **${fmt((player as any)[field])}**.`;
   }
 
   await savePlayer(db, player);

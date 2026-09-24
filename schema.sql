@@ -238,3 +238,6 @@ CREATE TABLE IF NOT EXISTS player_booster_items (
   quantity INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (guild_id, user_id, multiplier, duration_minutes)
 );
+
+-- ===== Idle Miner v8: corp materials bank =====
+ALTER TABLE corporations ADD COLUMN bank_materials INTEGER NOT NULL DEFAULT 0;

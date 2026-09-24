@@ -15,7 +15,7 @@
 //  - Leaving: if the leader leaves and others remain, the longest-tenured
 //    remaining member is promoted. If the corp is left empty, it's deleted.
 
-import { CORP_MAX_MEMBERS, corpBuffForBank, icon } from "../game/data";
+import { CORP_MAX_MEMBERS, corpBuffForBank, icon, fmt } from "../game/data";
 import { getOrCreatePlayer, savePlayer, accruePassiveIncome, getPlayerCorp, CorpRow } from "../game/economy";
 
 const COLOR = 0x2ecc71;
@@ -179,8 +179,9 @@ async function handleInfo(db: any, guildId: string, userId: string, name: string
           { name: "Leader", value: `<@${corp.leader_id}>`, inline: true },
           { name: "Members", value: `${memberRows.length}/${CORP_MAX_MEMBERS}`, inline: true },
           { name: "Buff", value: buff.label, inline: true },
-          { name: "Bank (Coins)", value: `${corp.bank_coins}`, inline: true },
-          { name: "Bank (Gems)", value: `${corp.bank_gems}`, inline: true },
+          { name: "Bank (Coins)", value: fmt(corp.bank_coins), inline: true },
+          { name: "Bank (Gems)", value: fmt(corp.bank_gems), inline: true },
+          { name: "Bank (Materials)", value: fmt(corp.bank_materials), inline: true },
           { name: "Roster", value: memberList, inline: false },
         ],
       },
@@ -188,57 +189,67 @@ async function handleInfo(db: any, guildId: string, userId: string, name: string
   });
 }
 
-async function handleDeposit(db: any, guildId: string, userId: string, amount: number, asset: string) {
+type CorpAsset = "coins" | "gems" | "materials";
+const ASSET_LABEL: Record<CorpAsset, string> = { coins: "coins", gems: "gems", materials: "materials" };
+function normalizeAsset(asset: string | undefined): CorpAsset {
+  return asset === "gems" ? "gems" : asset === "materials" ? "materials" : "coins";
+}
+
+async function handleDeposit(db: any, guildId: string, userId: string, amount: number, assetRaw: string) {
   if (!amount || amount <= 0) return simpleEmbed("Invalid amount", "Enter a positive amount to deposit.", { color: COLOR_WARN });
   const corp = await getPlayerCorp(db, guildId, userId);
   if (!corp) return simpleEmbed("Not in a corporation", "Join one first with `/corp join`.", { color: COLOR_WARN });
+  const asset = normalizeAsset(assetRaw);
 
   let player = await getOrCreatePlayer(db, guildId, userId);
   player = await accruePassiveIncome(db, player);
-  const isGems = asset === "gems";
-  const balance = isGems ? player.gems : player.coins;
+  const balance = asset === "gems" ? player.gems : asset === "materials" ? player.materials : player.coins;
   if (balance < amount) {
     await savePlayer(db, player);
-    return simpleEmbed("Not enough", `You only have **${balance}** ${isGems ? "gems" : "coins"}.`, { color: COLOR_WARN });
+    return simpleEmbed("Not enough", `You only have **${fmt(balance)} ${ASSET_LABEL[asset]}**.`, { color: COLOR_WARN });
   }
-  if (isGems) player.gems -= amount;
+  if (asset === "gems") player.gems -= amount;
+  else if (asset === "materials") player.materials -= amount;
   else player.coins -= amount;
   await savePlayer(db, player);
 
-  if (isGems) await db.prepare("UPDATE corporations SET bank_gems = bank_gems + ? WHERE id = ?").bind(amount, corp.id).run();
+  if (asset === "gems") await db.prepare("UPDATE corporations SET bank_gems = bank_gems + ? WHERE id = ?").bind(amount, corp.id).run();
+  else if (asset === "materials") await db.prepare("UPDATE corporations SET bank_materials = bank_materials + ? WHERE id = ?").bind(amount, corp.id).run();
   else await db.prepare("UPDATE corporations SET bank_coins = bank_coins + ? WHERE id = ?").bind(amount, corp.id).run();
 
-  const newCoinBank = isGems ? corp.bank_coins : corp.bank_coins + amount;
+  const newCoinBank = asset === "coins" ? corp.bank_coins + amount : corp.bank_coins;
   const buff = corpBuffForBank(newCoinBank);
   return simpleEmbed(
     "Deposited",
-    `You deposited **${amount} ${isGems ? "gems" : "coins"}** into **${corp.name}**'s bank.${!isGems ? ` New buff: **${buff.label}**.` : ""}`,
+    `You deposited **${fmt(amount)} ${ASSET_LABEL[asset]}** into **${corp.name}**'s bank.${asset === "coins" ? ` New buff: **${buff.label}**.` : ""}`,
     { thumbnail: icon("corp_icon") }
   );
 }
 
-async function handleWithdraw(db: any, guildId: string, userId: string, amount: number, asset: string) {
+async function handleWithdraw(db: any, guildId: string, userId: string, amount: number, assetRaw: string) {
   if (!amount || amount <= 0) return simpleEmbed("Invalid amount", "Enter a positive amount to withdraw.", { color: COLOR_WARN });
   const corp = await getPlayerCorp(db, guildId, userId);
   if (!corp) return simpleEmbed("Not in a corporation", "Join one first with `/corp join`.", { color: COLOR_WARN });
   if (corp.role !== "leader") return simpleEmbed("Leader only", "Only the corporation leader can withdraw from the bank.", { color: COLOR_WARN });
+  const asset = normalizeAsset(assetRaw);
 
-  const isGems = asset === "gems";
-  const bankBalance = isGems ? corp.bank_gems : corp.bank_coins;
+  const bankBalance = asset === "gems" ? corp.bank_gems : asset === "materials" ? corp.bank_materials : corp.bank_coins;
   if (bankBalance < amount) {
-    return simpleEmbed("Not enough in the bank", `The bank only has **${bankBalance}** ${isGems ? "gems" : "coins"}.`, { color: COLOR_WARN });
+    return simpleEmbed("Not enough in the bank", `The bank only has **${fmt(bankBalance)} ${ASSET_LABEL[asset]}**.`, { color: COLOR_WARN });
   }
 
-  if (isGems) await db.prepare("UPDATE corporations SET bank_gems = bank_gems - ? WHERE id = ?").bind(amount, corp.id).run();
+  if (asset === "gems") await db.prepare("UPDATE corporations SET bank_gems = bank_gems - ? WHERE id = ?").bind(amount, corp.id).run();
+  else if (asset === "materials") await db.prepare("UPDATE corporations SET bank_materials = bank_materials - ? WHERE id = ?").bind(amount, corp.id).run();
   else await db.prepare("UPDATE corporations SET bank_coins = bank_coins - ? WHERE id = ?").bind(amount, corp.id).run();
 
   let player = await getOrCreatePlayer(db, guildId, userId);
   player = await accruePassiveIncome(db, player);
-  if (isGems) player.gems += amount;
+  if (asset === "gems") player.gems += amount;
+  else if (asset === "materials") player.materials += amount;
   else player.coins += amount;
   await savePlayer(db, player);
 
-  return simpleEmbed("Withdrawn", `You withdrew **${amount} ${isGems ? "gems" : "coins"}** from **${corp.name}**'s bank.`, { thumbnail: icon("corp_icon") });
+  return simpleEmbed("Withdrawn", `You withdrew **${fmt(amount)} ${ASSET_LABEL[asset]}** from **${corp.name}**'s bank.`, { thumbnail: icon("corp_icon") });
 }
 
 async function handleKick(db: any, guildId: string, userId: string, targetId: string | undefined) {
@@ -263,6 +274,6 @@ async function handleLeaderboard(db: any, guildId: string) {
 
   if (!rows.length) return simpleEmbed("No corporations yet", "Be the first — `/corp create name:<name>`.", { thumbnail: icon("corp_icon") });
 
-  const lines = rows.map((r, i) => `#${i + 1}: **${r.name}** — $${r.bank_coins} bank (led by <@${r.leader_id}>)`);
+  const lines = rows.map((r, i) => `#${i + 1}: **${r.name}** — ${fmt(r.bank_coins)} bank (led by <@${r.leader_id}>)`);
   return simpleEmbed("Corporation Leaderboard", lines.join("\n"), { thumbnail: icon("corp_icon") });
 }

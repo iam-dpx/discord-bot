@@ -201,6 +201,7 @@ const commands = [
           { name: "Adjust Pet Shards (+/-)", value: "adjustpetshards" },
           { name: "Adjust XP (+/-)", value: "adjustxp" },
           { name: "Set Level", value: "setlevel" },
+          { name: "Reset a reward cooldown", value: "resetcooldown" },
         ],
       },
       // Leave "user" blank on any action to target yourself (self-gift / self-booster).
@@ -209,6 +210,20 @@ const commands = [
       { name: "minutes", description: "Duration in minutes (boosters only)", type: 4, required: false },
       { name: "label", description: "What to call this event (global booster only)", type: 3, required: false },
       { name: "amount", description: "Positive to give, negative to take away (adjust actions); target value for Set Level", type: 4, required: false },
+      {
+        name: "which",
+        description: "Which cooldown to reset (Reset a reward cooldown only)",
+        type: 3,
+        required: false,
+        choices: [
+          { name: "Daily", value: "daily" },
+          { name: "Weekly", value: "weekly" },
+          { name: "Monthly", value: "monthly" },
+          { name: "Pet Hunt", value: "hunt" },
+          { name: "Mine (the 3-button minigame)", value: "mine" },
+          { name: "All of the above", value: "all" },
+        ],
+      },
     ],
   },
   {
@@ -236,36 +251,38 @@ const commands = [
       },
       {
         name: "deposit",
-        description: "Deposit coins or gems into your corporation's bank",
+        description: "Deposit coins, gems, or materials into your corporation's bank",
         type: 1,
         options: [
           { name: "amount", description: "Amount to deposit", type: 4, required: true, min_value: 1 },
           {
             name: "asset",
-            description: "Coins or gems",
+            description: "Coins, gems, or materials",
             type: 3,
             required: false,
             choices: [
               { name: "Coins", value: "coins" },
               { name: "Gems", value: "gems" },
+              { name: "Materials", value: "materials" },
             ],
           },
         ],
       },
       {
         name: "withdraw",
-        description: "[Leader only] Withdraw coins or gems from the corporation bank",
+        description: "[Leader only] Withdraw coins, gems, or materials from the corporation bank",
         type: 1,
         options: [
           { name: "amount", description: "Amount to withdraw", type: 4, required: true, min_value: 1 },
           {
             name: "asset",
-            description: "Coins or gems",
+            description: "Coins, gems, or materials",
             type: 3,
             required: false,
             choices: [
               { name: "Coins", value: "coins" },
               { name: "Gems", value: "gems" },
+              { name: "Materials", value: "materials" },
             ],
           },
         ],

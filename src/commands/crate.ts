@@ -3,7 +3,8 @@
 // and handleCrateButtonClick(interaction, env) for MESSAGE_COMPONENT
 // interactions whose custom_id starts with "crate_open_".
 
-import { CRATE_TYPES, icon, formatMinutes } from "../game/data";
+import { CRATE_TYPES, icon, formatMinutes, fmt } from "../game/data";
+import { emojiPrefix } from "../game/emoji";
 import {
   getOrCreatePlayer,
   savePlayer,
@@ -30,7 +31,7 @@ async function buildCratePanel(p: Player, db: any) {
   const qtyByKey = new Map(inventory.map((r) => [r.crate_type, r.quantity]));
 
   const fields = CRATE_TYPES.map((c) => ({
-    name: c.label,
+    name: `${emojiPrefix(`crate_${c.key}`)}${c.label}`,
     value: `Owned: **${qtyByKey.get(c.key) ?? 0}**`,
     inline: true,
   }));
@@ -110,10 +111,10 @@ export async function handleCrateButtonClick(interaction: any, env: { DB: any })
     summary = result.reason ?? "Couldn't open that crate.";
     color = COLOR_WARN;
   } else if (result.rewardType === "coins") {
-    summary = `You opened a **${crateDef?.label}** and got **+${result.amount} coins**!`;
+    summary = `You opened a **${crateDef?.label}** and got **+${fmt(result.amount ?? 0)} coins**!`;
     thumb = icon("coin");
   } else if (result.rewardType === "gems") {
-    summary = `You opened a **${crateDef?.label}** and got **+${result.amount} gems**!`;
+    summary = `You opened a **${crateDef?.label}** and got **+${fmt(result.amount ?? 0)} gems**!`;
     thumb = icon("gem");
   } else {
     summary = `You opened a **${crateDef?.label}** and got a **x${result.multiplier} booster (${formatMinutes(
