@@ -84,22 +84,38 @@ async function uploadEmoji(name, base64Png) {
   return json;
 }
 
+async function deleteEmoji(id) {
+  const res = await fetch(`https://discord.com/api/v10/applications/${appId}/emojis/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bot ${token}` },
+  });
+  if (!res.ok && res.status !== 404) {
+    console.error(`Failed to delete emoji id ${id}:`, await res.json());
+    return false;
+  }
+  return true;
+}
+
 const existing = await listAppEmojis();
 const existingByName = new Map(existing.map((e) => [e.name, e]));
 const result = readExistingMap();
 
+// Discord's app-emoji API can only rename an existing emoji, not replace its
+// image — so if the art changed, the old one is deleted first and a fresh
+// one created with the same name. This means every run re-uploads every
+// icon in EMOJI_SOURCES (not just new ones), which is slower but keeps the
+// emoji in sync any time you update assets/icons/*.png and re-run this.
 for (const name of EMOJI_SOURCES) {
-  if (existingByName.has(name)) {
-    const e = existingByName.get(name);
-    result[name] = `<:${e.name}:${e.id}>`;
-    console.log(`Already uploaded: ${name}`);
-    continue;
-  }
-
   const filePath = new URL(`./assets/icons/${name}.png`, import.meta.url);
   if (!existsSync(filePath)) {
     console.warn(`Skipping ${name} — assets/icons/${name}.png not found`);
     continue;
+  }
+
+  if (existingByName.has(name)) {
+    const ok = await deleteEmoji(existingByName.get(name).id);
+    if (!ok) { console.warn(`Couldn't delete old "${name}" — leaving it as-is.`); continue; }
+    await new Promise((r) => setTimeout(r, 500));
   }
 
   const base64 = readFileSync(filePath).toString("base64");
