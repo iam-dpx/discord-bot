@@ -7,9 +7,11 @@ export const icon = (name: string) => `${ICON_BASE}/${name}.png`;
 
 // Formats a whole-number currency amount with "." as the thousands
 // separator and a trailing ",-" (no-cents marker) — e.g. 1000000 becomes
-// "1.000.000,-". Used for every coins/gems/shards/materials display.
+// "1.000.000,-". Values under 1,000 (including 0) are shown plain with no
+// suffix, since grouping/",-" only helps once there's something to group.
 export function fmt(n: number): string {
   const rounded = Math.round(n);
+  if (Math.abs(rounded) < 1000) return `${rounded}`;
   const sign = rounded < 0 ? "-" : "";
   const grouped = Math.abs(rounded).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
   return `${sign}${grouped},-`;

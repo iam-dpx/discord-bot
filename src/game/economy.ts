@@ -582,6 +582,7 @@ export interface ActiveBoosterRow {
   expires_at: number;
   scope: "personal" | "global";
   label?: string;
+  source?: string; // 'gm' | 'crate' — only set for scope:"personal"
 }
 
 // Everything currently boosting this player's income: their own personal
@@ -591,11 +592,11 @@ export async function getActiveBoosters(db: any, guildId: string, userId: string
   const now = Date.now();
   const personal = (await db
     .prepare(
-      `SELECT multiplier, expires_at FROM player_boosters
+      `SELECT multiplier, expires_at, source FROM player_boosters
        WHERE guild_id=? AND user_id=? AND booster_type='income' AND expires_at > ? ORDER BY expires_at ASC`
     )
     .bind(guildId, userId, now)
-    .all()) as { results: { multiplier: number; expires_at: number }[] };
+    .all()) as { results: { multiplier: number; expires_at: number; source: string }[] };
   const global = (await db
     .prepare(`SELECT multiplier, expires_at, label FROM global_boosters WHERE guild_id=? AND expires_at > ? ORDER BY expires_at ASC`)
     .bind(guildId, now)

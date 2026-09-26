@@ -8,6 +8,7 @@
 // interactions whose custom_id starts with "boost_use_".
 
 import { icon, formatMinutes } from "../game/data";
+import { emojiPrefix } from "../game/emoji";
 import {
   getOrCreatePlayer,
   savePlayer,
@@ -45,7 +46,7 @@ async function buildBoosterPanel(p: Player, db: any) {
     ? active.map((b) =>
         b.scope === "global"
           ? `**${b.label ?? "Event Booster"}** (server-wide) — x${b.multiplier} income, **${formatRemaining(b.expires_at - now)}** left`
-          : `**x${b.multiplier} booster** — **${formatRemaining(b.expires_at - now)}** left`
+          : `${b.source === "gm" ? emojiPrefix("booster_gm") : ""}**x${b.multiplier} booster**${b.source === "gm" ? " (gifted by Game Master)" : ""} — **${formatRemaining(b.expires_at - now)}** left`
       )
     : ["No active boosters right now."];
 

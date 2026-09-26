@@ -211,7 +211,7 @@ async function handleSell(p: Player, db: any) {
     "Materials aren't sold directly",
     `You have **${fmt(p.materials)}** materials banked from mining — deposit them into your corporation's bank with \`/corp deposit asset:materials\`. ` +
       `Your coin balance grows automatically from your $/min income — check \`/profile\`.`,
-    { thumbnail: icon("shard") }
+    { thumbnail: icon("materials_icon") }
   );
 }
 
@@ -242,18 +242,18 @@ async function handleProfile(p: Player, db: any, name: string) {
         color: COLOR,
         thumbnail: { url: icon("factory_icon") },
         fields: [
-          { name: "Factory Name", value: `${name}'s Factory`, inline: true },
+          { name: `${emojiPrefix("factory_icon")}Factory Name`, value: `${name}'s Factory`, inline: true },
           { name: "Location", value: "Garage", inline: true },
-          { name: "Corporation", value: corpValue, inline: true },
-          { name: "Balance", value: fmt(p.coins), inline: true },
-          { name: "Income (per minute)", value: fmt(Math.floor(rate)), inline: true },
-          { name: "Prestige", value: `${p.prestige}`, inline: true },
-          { name: "Level", value: `${p.level}`, inline: true },
+          { name: `${emojiPrefix("corp_icon")}Corporation`, value: corpValue, inline: true },
+          { name: `${emojiPrefix("coin")}Balance`, value: fmt(p.coins), inline: true },
+          { name: `${emojiPrefix("income_icon")}Income (per minute)`, value: fmt(Math.floor(rate)), inline: true },
+          { name: `${emojiPrefix("prestige_icon")}Prestige`, value: `${p.prestige}`, inline: true },
+          { name: `${emojiPrefix("exp_icon")}Level`, value: `${p.level}`, inline: true },
           { name: "Factory Age", value: `${factoryAgeDays} Days`, inline: true },
-          { name: "Gems", value: fmt(p.gems), inline: true },
-          { name: "Shards", value: fmt(p.shards), inline: true },
-          { name: "Pet Shards", value: fmt(p.pet_shards), inline: true },
-          { name: "Materials", value: fmt(p.materials), inline: true },
+          { name: `${emojiPrefix("gem")}Gems`, value: fmt(p.gems), inline: true },
+          { name: `${emojiPrefix("shard")}Shards`, value: fmt(p.shards), inline: true },
+          { name: `${emojiPrefix("pet_shard")}Pet Shards`, value: fmt(p.pet_shards), inline: true },
+          { name: `${emojiPrefix("materials_icon")}Materials`, value: fmt(p.materials), inline: true },
           { name: "Pets", value: petList, inline: false },
         ],
       },
@@ -645,7 +645,7 @@ async function handleGmBoost(interaction: any, db: any, options: any[], ownerId:
     embeds: [
       {
         title: "Gifted by the Game Master",
-        description: `<@${targetId}> received a **x${multiplier}** income booster for **${minutes} minutes**!`,
+        description: `${emojiPrefix("booster_gm")}<@${targetId}> received a **x${multiplier}** income booster for **${minutes} minutes**!`,
         color: COLOR,
         thumbnail: { url: icon("booster_gm") },
       },

@@ -28,13 +28,15 @@ if (!token || !appId) {
 // (they must exist as assets/icons/<key>.png).
 const EMOJI_SOURCES = [
   // upgrades
-  "factory_icon", "miner_icon",
+  "factory_icon", "miner_icon", "exp_icon",
   // ores — one emoji per type, using the mid-tier "form 3" art
   "ore_copper_3", "ore_silver_3", "ore_gold_3", "ore_platinum_3", "ore_emerald_3", "ore_diamond_3",
   // pets
   "pet_mole", "pet_bat", "pet_owl", "pet_slime", "pet_golem", "pet_crystalfox",
   // currencies
   "coin", "gem", "shard", "pet_shard", "prestige_token",
+  // stat badges added for the profile/corp emoji pass
+  "materials_icon", "income_icon", "prestige_icon", "corp_buff_icon",
   // crates
   "crate_common", "crate_rare", "crate_epic", "crate_legendary",
   // boosters / misc

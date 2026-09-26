@@ -30,13 +30,14 @@ async function buildCratePanel(p: Player, db: any) {
   const inventory = await getCrateInventory(db, p.guild_id, p.user_id);
   const qtyByKey = new Map(inventory.map((r) => [r.crate_type, r.quantity]));
 
-  const fields = CRATE_TYPES.map((c) => ({
+  const ownedTypes = CRATE_TYPES.filter((c) => (qtyByKey.get(c.key) ?? 0) > 0);
+  const fields = ownedTypes.map((c) => ({
     name: `${emojiPrefix(`crate_${c.key}`)}${c.label}`,
-    value: `Owned: **${qtyByKey.get(c.key) ?? 0}**`,
+    value: `Owned: **${qtyByKey.get(c.key)}**`,
     inline: true,
   }));
 
-  const ownedTypes = CRATE_TYPES.filter((c) => (qtyByKey.get(c.key) ?? 0) > 0);
+
   const components = ownedTypes.length
     ? [
         {

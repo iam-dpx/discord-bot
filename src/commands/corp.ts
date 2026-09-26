@@ -16,6 +16,7 @@
 //    remaining member is promoted. If the corp is left empty, it's deleted.
 
 import { CORP_MAX_MEMBERS, corpBuffForBank, icon, fmt } from "../game/data";
+import { emojiPrefix } from "../game/emoji";
 import { getOrCreatePlayer, savePlayer, accruePassiveIncome, getPlayerCorp, CorpRow } from "../game/economy";
 
 const COLOR = 0x2ecc71;
@@ -178,10 +179,10 @@ async function handleInfo(db: any, guildId: string, userId: string, name: string
         fields: [
           { name: "Leader", value: `<@${corp.leader_id}>`, inline: true },
           { name: "Members", value: `${memberRows.length}/${CORP_MAX_MEMBERS}`, inline: true },
-          { name: "Buff", value: buff.label, inline: true },
-          { name: "Bank (Coins)", value: fmt(corp.bank_coins), inline: true },
-          { name: "Bank (Gems)", value: fmt(corp.bank_gems), inline: true },
-          { name: "Bank (Materials)", value: fmt(corp.bank_materials), inline: true },
+          { name: `${emojiPrefix("corp_buff_icon")}Buff`, value: buff.label, inline: true },
+          { name: `${emojiPrefix("coin")}Bank (Coins)`, value: fmt(corp.bank_coins), inline: true },
+          { name: `${emojiPrefix("gem")}Bank (Gems)`, value: fmt(corp.bank_gems), inline: true },
+          { name: `${emojiPrefix("materials_icon")}Bank (Materials)`, value: fmt(corp.bank_materials), inline: true },
           { name: "Roster", value: memberList, inline: false },
         ],
       },
